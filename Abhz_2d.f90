@@ -20,17 +20,15 @@ program anderson_bhz_2d
   implicit none
 
   integer,parameter                             :: Norb=2,Nspin=2
-  !
   real(8)                                       :: z2,sp_chern(2)
-  !
-  complex(8),dimension(:,:),allocatable         :: U !Bloch states
-  real(8),dimension(:),allocatable              :: E !Bloch levels
+  !Solution
+  real(8),dimension(:),allocatable              :: Ev
+  complex(8),dimension(:,:),allocatable         :: H
   real(8),dimension(:,:,:),allocatable          :: Nii
   real(8),dimension(:),allocatable              :: Tzii,Szii
-  integer                                       :: ilat,iorb,ispin,io
+  !
   complex(8),dimension(:,:,:,:),allocatable     :: Gf
-  complex(8),dimension(:,:,:,:,:,:),allocatable :: Gloc
-
+  integer                                       :: ilat,iorb,ispin,io
 
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="inputABHZ.conf")
@@ -111,19 +109,9 @@ program anderson_bhz_2d
 
 
   !Solve the A_BHZ (non-interacting):
-  allocate(Nii(Nlat,Nspin,Norb))
-  call solve_Anderson_bhz(Nii)
+  call solve_Anderson_bhz()
 
-
-
-  !Get Observables:
-  allocate(Szii(Nlat))
-  allocate(Tzii(Nlat))
-  do ilat=1,Nlat
-     Szii(ilat) = 0.5d0*sum(Nii(ilat,1,:)) - 0.5d0*sum(Nii(ilat,2,:)) !N_up - N_dw
-     Tzii(ilat) = 0.5d0*sum(Nii(ilat,:,1)) - 0.5d0*sum(Nii(ilat,:,2)) !N_1  - N_2
-  enddo
-  call save_array("Ebhz.restart",E)
+  call save_array("Ebhz.restart",Ev)
   call save_array("sz_"//str(idum)//".dat",Szii)
   call save_array("tz_"//str(idum)//".dat",Tzii)
   call save_array("n_l1s1_"//str(idum)//".dat",Nii(:,1,1))
@@ -133,28 +121,31 @@ program anderson_bhz_2d
 
 
 
+  call push_Bloch(H,Ev)
+
   !Get topological info:
-  sp_chern(1) = single_point_spin_chern(U,E,Sz,1)
-  sp_chern(2) = single_point_spin_chern(U,E,Sz,2)
+  sp_chern(1) = single_point_spin_chern(spin=1)
+  sp_chern(2) = single_point_spin_chern(spin=2)
   call save_array("spin_chern.dat",sp_chern)
   print*,"spin_Chern UP,DW:",sp_chern
   !
   if(with_lcm)then
-     call pbc_local_spin_chern_marker(U,E,Sz,1,LsCM)
+     call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
      call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
   endif
 
+  
   !< Get GF:
   if(with_mats_gf)then
      allocate(Gf(Nlat,Nso,Nso,Lfreq))
-     call get_gf(U,E,Gf,'mats')
+     call get_gf(Gf,'mats')
      call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=5,itar=.true.)
      deallocate(Gf)
   endif
 
   if(with_real_gf)then
      allocate(Gf(Nlat,Nso,Nso,Lfreq))
-     call get_gf(U,E,Gf,'real')
+     call get_gf(Gf,'real')
      call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=5,itar=.true.)
      deallocate(Gf)
   endif
@@ -164,30 +155,35 @@ program anderson_bhz_2d
 contains
 
 
-  subroutine solve_Anderson_BHZ(Nii)
-    real(8),dimension(Nlso)         :: rhoE
-    complex(8),dimension(Nlso,NLso) :: rhoH
-    real(8)                         :: Nii(Nlat,Nspin,Norb)
-    integer                         :: iter,iorb,ispin,Nblock
+  subroutine solve_Anderson_BHZ()
+    real(8),dimension(Nlso)         :: fE
+    complex(8),dimension(Nlso,NLso) :: Rho
+    integer                         :: io,jo,ilat,iorb,ispin
     !
-    if(allocated(E))deallocate(E)
-    allocate(E(Nlso))
-    if(allocated(U))deallocate(U)
-    allocate(U, source=Hij(:,:,1))
+    if(.not.allocated(Nii))allocate(Nii(Nlat,Nspin,Norb))
+    if(.not.allocated(Szii))allocate(Szii(Nlat))
+    if(.not.allocated(Tzii))allocate(Tzii(Nlat))
+    if(.not.allocated(H))allocate(H(Nlso,Nlso))
+    if(.not.allocated(Ev))allocate(Ev(Nlso))
     !
     call start_timer("Solve Anderson BHZ")
     !
-    call eigh(U,E)
+    H = Hij(:,:,1)
+    call eigh(H,Ev)
     !
     !Actual solution:
-    rhoE = fermi(E,beta)
-    rhoH = matmul(U , matmul(diag(rhoE), conjg(transpose(U))) )
+    fE  = fermi(Ev,beta)
+    Rho = matmul(H , matmul(diag(fE), conjg(transpose(H))) )
     !
+    !Get observables:
     do concurrent(ilat=1:Nlat,ispin=1:Nspin,iorb=1:Norb)
        io = iorb+(ispin-1)*Norb+(ilat-1)*Nspin*Norb
-       Nii(ilat,ispin,iorb) = rhoH(io,io)
+       Nii(ilat,ispin,iorb) = Rho(io,io)
     enddo
-    !
+    do ilat=1,Nlat
+       Szii(ilat) = 0.5d0*sum(Nii(ilat,1,:)) - 0.5d0*sum(Nii(ilat,2,:)) !N_up - N_dw
+       Tzii(ilat) = 0.5d0*sum(Nii(ilat,:,1)) - 0.5d0*sum(Nii(ilat,:,2)) !N_1  - N_2
+    enddo
     !
     call stop_timer()
   end subroutine solve_Anderson_BHZ

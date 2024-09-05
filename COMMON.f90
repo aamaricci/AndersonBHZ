@@ -52,9 +52,14 @@ MODULE COMMON
   complex(8),dimension(:,:,:,:),allocatable :: Hlat
   complex(8),dimension(:,:),allocatable     :: Sz
   real(8),dimension(:,:),allocatable        :: LsCM
+  !
+  complex(8),dimension(:,:),allocatable     :: U
+  complex(8),dimension(:,:),allocatable     :: PSzP
+  real(8),dimension(:),allocatable          :: E
+  real(8),dimension(:),allocatable          :: Epsp
 
 
-  
+
 contains
 
 
@@ -167,25 +172,64 @@ contains
     if(Nocc==0)stop str(caller)//" error: Nocc not set"
     if(Nlat/=Nx*Ny)stop str(caller)//" error: Nlat != Nx*Ny"
     if(.not.allocated(Hlat)) stop str(caller)//" error: Hlat not allocated"
-    call assert_shape(Hlat,[Nso,Nso,Nlat,Nlat],"check_dimension","Hlat")
-    call assert_shape(Hij,[Nlso,Nlso,1],"check_dimension","Hij")
-
+    if(allocated(Hlat))call assert_shape(Hlat,[Nso,Nso,Nlat,Nlat],"check_dimension","Hlat")
+    if(allocated(Hij))call assert_shape(Hij,[Nlso,Nlso,1],"check_dimension","Hij")
+    if(allocated(U))call assert_shape(U,[Nlso,Nlso],"check_dimension","U")
+    if(allocated(E))call assert_shape(E,[Nlso],"check_dimension","E")
+    if(allocated(Sz))call assert_shape(Sz,[Nlso,Nlso],"check_dimension","Sz")
+    if(allocated(PSzP))call assert_shape(PSzP,[Nocc,Nocc],"check_dimension","PSzP")
+    if(allocated(Epsp))call assert_shape(Epsp,[Nocc],"check_dimension","Epsp")    
     ! stop str(caller)//" error: "
     ! stop str(caller)//" error: "
   end subroutine check_dimension
 
 
 
+  subroutine check_Pgap(n,caller)
+    integer          :: N
+    character(len=*) :: caller
+    real(8)          :: Ep,Em,Pgap
+    Ep   = Epsp(N+1)
+    Em   = Epsp(N)
+    Pgap = Ep - Em
+    !
+    if(Pgap<1d-12)then
+       stop str(caller)//" error: closing of the PSzP spectrum"
+    elseif(Ep*Em>0d0)then
+       stop str(caller)//" error: PSzP spectrum not symmetric"
+    else
+       return
+    endif
+  end subroutine check_Pgap
 
-  subroutine get_gf(U,E,Gloc,axis)
-    complex(8),dimension(Nlso,Nlso),intent(in)             :: U
-    real(8),dimension(Nlso),intent(in)                     :: E
+  
+  subroutine check_Egap(n,caller)
+    integer          :: N
+    character(len=*) :: caller
+    real(8)          :: Ep,Em,Egap
+    Ep   = E(N+1)
+    Em   = E(N)
+    Egap = Ep - Em
+    !
+    if(Egap<1d-12)then
+       stop str(caller)//" error: closing of the H spectrum"
+    elseif(Ep*Em>0d0)then
+       stop str(caller)//" error: H spectrum not symmetric"
+    else
+       return
+    endif
+  end subroutine check_Egap
+
+
+  
+  subroutine get_gf(Gloc,axis)
     complex(8),dimension(Nlat,Nso,Nso,Lfreq),intent(inout) :: Gloc
     character(len=*)                                       :: axis
     complex(8),dimension(Lfreq)                            :: wfreq
     complex(8),dimension(Nlso,Lfreq)                       :: csi
     integer                                                :: i,ilat,io,jo,is,js
     !
+    call check_dimension("get_gf")
     !
     write(*,"(A)")"Get local Green's function, axis:"//str(axis)
     wfreq = build_frequency_array(axis)
