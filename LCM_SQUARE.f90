@@ -235,16 +235,16 @@ contains
   !+------------------------------------------------------------------+
   function single_point_chern(method) result(sp_chern)
     character(len=*),optional                 :: method
-    real(8)                                   :: sp_chern(2)
+    real(8)                                   :: sp_chern
     !
     character(len=1)                          :: method_
     real(8),dimension(2)                      :: b1,b2
     complex(8),dimension(:,:),allocatable     :: Ub1,Ub2,Umb1,Umb2
     complex(8),dimension(:,:),allocatable     :: Vb1,Vb2,Vmb1,Vmb2
-    complex(8)                                :: sum_chern(2)
+    complex(8)                                :: sum_chern
     integer                                   :: i,j
     !
-    method_='b' ;if(present(method))method_=method
+    method_='a' ;if(present(method))method_=method
     !
     call check_dimension("single_point_chern")
     call assert_shape(U,[size(U,1),Nlso],"single_point_chern","U")
@@ -260,29 +260,19 @@ contains
     Vb2 = dual_state(U,Ub2)
     !
     sum_chern = zero
-    select case(to_lower(method_))
-    case('a')
-       do i=1,Nocc
-          sum_chern(1) = sum_chern(1) + dot_product(Vb1(:,i),Vb2(:,i))
-       enddo
-    case('s')
+    if(to_lower(method_)=='s')then
        Umb1 = periodic_gauge(U,-b1)
        Umb2 = periodic_gauge(U,-b2)
        Vmb1 = dual_state(U,Umb1)
        Vmb2 = dual_state(U,Umb2)
        do i=1,Nocc
-          sum_chern(2) = sum_chern(2) + dot_product((Vmb1(:,i)-Vb1(:,i)),(Vmb2(:,i)-Vb2(:,i)))/4d0
+          sum_chern = sum_chern + dot_product((Vmb1(:,i)-Vb1(:,i)),(Vmb2(:,i)-Vb2(:,i)))/4d0
        enddo
-    case default
-       Umb1 = periodic_gauge(U,-b1)
-       Umb2 = periodic_gauge(U,-b2)
-       Vmb1 = dual_state(U,Umb1)
-       Vmb2 = dual_state(U,Umb2)
+    else
        do i=1,Nocc
-          sum_chern(1) = sum_chern(1) + dot_product(Vb1(:,i),Vb2(:,i))
-          sum_chern(2) = sum_chern(2) + dot_product((Vmb1(:,i)-Vb1(:,i)),(Vmb2(:,i)-Vb2(:,i)))/4d0
+          sum_chern = sum_chern + dot_product(Vb1(:,i),Vb2(:,i))
        enddo
-    end select
+    end if
     !
     call stop_timer()
     !
@@ -328,18 +318,13 @@ contains
     call start_timer("single_point_spinChern_s"//str(spin))
     !
     !|q_i0> = sum_m=1,Nocc q_i(m)|u_m0>
-    ! q     = [P_{a'b'}.x.[U^T]_{a,b'}]^T [Nlso,Nocc]
-    ! q0    = transpose(matmul( PSzP,transpose(U(:,1:Nocc)) ))
-    allocate(Q(Nlso,Nocc))!;Q=zero
-    ! do concurrent(i=1:Nocc,m=1:Nocc)
-    !    Q(:,i) = Q(:,i) + PSzP(m,i)*U(:,m)
-    ! enddo
+    ! q     = U x P_{a'b'} [Nlso,Nocc]
+    allocate(Q(Nlso,Nocc))
     Q = matmul( U(:,1:Nocc), PSzP )
     !
     Qb1 = periodic_gauge(Q,b1)
     Qb2 = periodic_gauge(Q,b2)
     !
-    !A bottleneck
     Vb1 = dual_state(Q,Qb1,spin)
     Vb2 = dual_state(Q,Qb2,spin)
     !
@@ -347,10 +332,8 @@ contains
     if(to_lower(method_)=='s')then
        Qmb1 = periodic_gauge(Q,-b1)
        Qmb2 = periodic_gauge(Q,-b2)
-       !
        Vmb1 = dual_state(Q,Qmb1,spin)
        Vmb2 = dual_state(Q,Qmb2,spin)
-       !
        do i=1,N
           sum_chern = sum_chern + dot_product((Vmb1(:,i)-Vb1(:,i)),(Vmb2(:,i)-Vb2(:,i)))/4d0
        enddo
@@ -395,10 +378,7 @@ contains
     !
     call start_timer("obc_local_ChernMarker")
     !
-    P = zero
-    do i=1,Nocc
-       P = P + outerprod(U(:,i),conjg(U(:,i)))
-    enddo
+    P = matmul( U(:,1:Nocc),transpose(conjg(U(:,1:Nocc))) )
     !
     allocate(R(Nlso,2))
     R       = TB_build_Rcoord([Nx,Ny],to_home=.false.)
@@ -454,21 +434,15 @@ contains
     call check_Pgap(N,"OBC_local_spin_chern_marker")
     !
     call start_timer("obc_local_spinChernMarker_s"//str(spin))
+    !
     allocate(Q(Nlso,Nocc))
-    Q=zero
-    do i=1,Nocc
-       do m=1,Nocc
-          Q(:,i) = Q(:,i) + PSzP(m,i)*U(:,m)
-       enddo
-    enddo
+    Q = matmul( U(:,1:Nocc), PSzP ) 
+    !
     !GS projectors P_-, P_+
-    P = zero
-    do i=1,N
-       select case(spin)
-       case(1);P = P + outerprod(Q(:,  i),conjg(Q(:,  i)))
-       case(2);P = P + outerprod(Q(:,N+i),conjg(Q(:,N+i)))
-       end select
-    enddo
+    select case(spin)
+    case(1);P = matmul( Q(:,1:N)    ,transpose(conjg(Q(:,1:N))) )    
+    case(2);P = matmul( Q(:,N+1:2*N),transpose(conjg(Q(:,N+1:2*N))) )
+    end select
     !
     R       = TB_build_Rcoord([Nx,Ny],to_home=.false.)
     Xcomm_P = matmul(diag(R(:,1)),P) - matmul(P,diag(R(:,1)))
@@ -530,31 +504,22 @@ contains
     Vb1 = dual_state(U,Ub1)
     Vb2 = dual_state(U,Ub2)
     !
-    Pgs = zero
-    Pb1 = zero
-    Pb2 = zero
-    do i=1,Nocc
-       Pgs = Pgs + outerprod(U(:,i),conjg(U(:,i)))
-       Pb1 = Pb1 + outerprod(Vb1(:,i),conjg(Vb1(:,i)))
-       Pb2 = Pb2 + outerprod(Vb2(:,i),conjg(Vb2(:,i)))
-    enddo
-    P = matmul(Pb1,Pb2) - matmul(Pb2,Pb1)
+    Pgs = matmul( U(:,1:Nocc),transpose(conjg(U(:,1:Nocc))) )
+    Pb1 = matmul( Vb1(:,1:Nocc),transpose(conjg(Vb1(:,1:Nocc))) )
+    Pb2 = matmul( Vb2(:,1:Nocc),transpose(conjg(Vb2(:,1:Nocc))) )
+    P   = matmul(Pb1,Pb2) - matmul(Pb2,Pb1)
     !
     if(to_lower(method_)=='a')then
        Umb1 = periodic_gauge(U,-b1)
        Umb2 = periodic_gauge(U,-b2)
        Vmb1 = dual_state(U,Umb1)
        Vmb2 = dual_state(U,Umb2)
-       Pmb1 = zero
-       Pmb2 = zero
-       do i=1,Nocc
-          Pmb1 = Pmb1 + outerprod(Vmb1(:,i),conjg(Vmb1(:,i)))
-          Pmb2 = Pmb2 + outerprod(Vmb2(:,i),conjg(Vmb2(:,i)))
-       enddo
-       P =  (matmul(Pmb1,Pmb2) - matmul(Pmb2,Pmb1)) - &
+       Pmb1 = matmul( Vmb1(:,1:Nocc),transpose(conjg(Vmb1(:,1:Nocc))) )
+       Pmb2 = matmul( Vmb2(:,1:Nocc),transpose(conjg(Vmb2(:,1:Nocc))) )
+       P    =  (matmul(Pmb1,Pmb2) - matmul(Pmb2,Pmb1)) - &
             (matmul(Pb1 ,Pmb2) - matmul(Pmb2,Pb1) ) - &
             (matmul(Pmb1,Pb2)  - matmul(Pb2 ,Pmb1))
-       P = P/4d0
+       P    = P/4d0
     endif
     !
     Chern_Q2 = dimag(matmul(P,Pgs))/pi2*Nlat
@@ -618,70 +583,37 @@ contains
     !
     call check_Pgap(N,"pbc_local_spinChernMarker")
     !
+    !
     call start_timer("pbc_local_spinChernMarker_s"//str(spin))
     !
     allocate(Q(Nlso,Nocc))!;Q=zero
     Q = matmul( U(:,1:Nocc), PSzP ) 
-    ! do concurrent(j=1:Nocc,m=1:Nocc)
-    !    Q(:,j) = Q(:,j) + PSzP(m,j)*U(:,m)
-    ! enddo
-
+    !
     !GS projectors Pgs_-, Pgs_+
-    call t_start()
-    ! Pgs = zero
-
-
     select case(spin)
-    case(1);Pgs = matmul(Q(:,1:N),transpose(conjg(Q(:,1:N))) )    
-    case(2);Pgs = matmul(Q(:,N+1:),transpose(conjg(Q(:,N+1:))) )
-       ! case(1)
-       !    do i=1,N
-       !       Pgs = Pgs + outerprod(Q(:,  i),conjg(Q(:,  i)))
-       !    enddo
-       ! case(2)
-       !    do i=1,N
-       !       Pgs = Pgs + outerprod(Q(:,N+i),conjg(Q(:,N+i)))
-       !    enddo
+    case(1);Pgs = matmul( Q(:,1:N),transpose(conjg(Q(:,1:N))) )    
+    case(2);Pgs = matmul( Q(:,N+1:),transpose(conjg(Q(:,N+1:))) )
     end select
-    call t_stop("get Pgs")
     !
     Ub1 = periodic_gauge(Q,b1)
     Ub2 = periodic_gauge(Q,b2)
     Vb1 = dual_state(Q,Ub1,spin)
     Vb2 = dual_state(Q,Ub2,spin)
-
-    call t_start()
-    ! Pb1 = zero
-    ! Pb2 = zero
-    ! do i=1,N
-    !    Pb1 = Pb1 + outerprod(Vb1(:,i),conjg(Vb1(:,i)))
-    !    Pb2 = Pb2 + outerprod(Vb2(:,i),conjg(Vb2(:,i)))
-    ! enddo
-    Pb1 = matmul(Vb1(:,1:N),transpose(conjg(Vb1(:,1:N))) )
-    Pb2 = matmul(Vb2(:,1:N),transpose(conjg(Vb2(:,1:N))) )  
-    call t_stop("get Pb1,2")
-
-
-    P = matmul(Pb1,Pb2) - matmul(Pb2,Pb1)
-
+    Pb1 = matmul( Vb1(:,1:N),transpose(conjg(Vb1(:,1:N))) )
+    Pb2 = matmul( Vb2(:,1:N),transpose(conjg(Vb2(:,1:N))) )  
+    P   = matmul(Pb1,Pb2) - matmul(Pb2,Pb1)
     !
     if(to_lower(method_)=='s')then       
        Umb1 = periodic_gauge(Q,-b1)
        Umb2 = periodic_gauge(Q,-b2)
        Vmb1 = dual_state(Q,Umb1,spin)
        Vmb2 = dual_state(Q,Umb2,spin)
-       ! Pmb1 = zero
-       ! Pmb2 = zero
-       ! do i=1,N
-       !    Pmb1 = Pmb1 + outerprod(Vmb1(:,i),conjg(Vmb1(:,i)))
-       !    Pmb2 = Pmb2 + outerprod(Vmb2(:,i),conjg(Vmb2(:,i)))
-       ! enddo
        Pmb1 = matmul(Vmb1(:,1:N),transpose(conjg(Vmb1(:,1:N))) )
        Pmb2 = matmul(Vmb2(:,1:N),transpose(conjg(Vmb2(:,1:N))) )         
-       P =  (matmul(Pmb1,Pmb2) - matmul(Pmb2,Pmb1)) - &
+       P    =  (matmul(Pmb1,Pmb2) - matmul(Pmb2,Pmb1)) - &
             (matmul(Pb1 ,Pmb2) - matmul(Pmb2,Pb1) ) - &
             (matmul(Pmb1,Pb2)  - matmul(Pb2 ,Pmb1))
-       P = P/4d0
+       P    = P/4d0
     endif
     !
     !
@@ -731,7 +663,7 @@ contains
     complex(8),dimension(Nlso)            :: Varg  ![Nlso]
     integer                               :: i,j,N
     !
-    N = size(U,2)               !Nlso OR Nocc (==Nlso/2)
+    N = size(U,2)
     !
     !Build the position array:
     R = TB_build_Rcoord([Nx,Ny])
@@ -751,43 +683,38 @@ contains
   !
   ! Use Bloch eigenstates (U) and Periodic gage (Ub).
   ! Spin=0,1,2. 0=spinless, 1,2=up,dw
+  !
+  ! S_mn = <u_m0|u_nb> = <u_m0|e^{-ib.R}|u_n0>
   !------------------------------------------------------------------
   function Dual_State(U,Ub,spin) result(Vb)
-    complex(8),dimension(:,:)             :: U  ![M,N]
-    complex(8),dimension(:,:)             :: Ub ![M,N]
+    complex(8),dimension(:,:)             :: U
+    complex(8),dimension(:,:)             :: Ub
     integer,optional                      :: spin
-    complex(8),dimension(:,:),allocatable :: Vb ![M,N]
-    complex(8),dimension(:,:),allocatable :: S  !
-    integer :: spin_
+    complex(8),dimension(:,:),allocatable :: Vb
+    complex(8),dimension(:,:),allocatable :: S
+    integer                               :: spin_
     integer                               :: N,a
     !
     spin_ = 0;if(present(spin))spin_=spin
     if(spin_<0.OR.spin_>2)stop "dual_state error: spin < 0 OR spin > 2"
     !
     N = Nocc ;if(spin_>0)N=int(Nocc/2d0)
-    ! N  = size(U,2)              !Nlso or Nocc (==Nlso/2)
+    a = 0    ;if(spin_==2)a=N
+    !
+    allocate(S(N,N))
+    S = matmul( transpose(conjg(U(:,a+1:a+N))), Ub(:,a+1:a+N) )
+    !
+#ifdef _SCALAPACK
+    call p_inv(S,Nblock)
+#else
+    call inv(S)
+#endif
+
     !
     if(allocated(Vb))deallocate(Vb)
-    allocate(S(N,N))
-    allocate(Vb(Nlso,N))!;Vb=zero
+    allocate(Vb(Nlso,N))
+    Vb = matmul( Ub(:,a+1:a+N), S)
     !
-    !S_mn = <u_m0|u_nb> = <u_m0|e^{-ib.R}|u_n0>
-    a = 0;if(spin_==2)a=N
-    ! select case(spin_)
-    ! case default;stop "Dual_State error: spin != 0,1,2"
-    ! case(0,1);s=0
-    ! case(2)  ;s=N
-    ! end select
-    !
-    S = matmul( transpose(conjg(U(:,a+1:a+N))), Ub(:,a+1:a+N) )
-    ! forall(i=1:N,j=1:N)S(i,j)  = dot_product(U(:,a+i), Ub(:,a+j))
-    !
-    call inv(S)
-    !
-    Vb = matmul( Ub(:,a+1:a+N), S) 
-    ! do concurrent(j=1:Ns,m=1:Ns)
-    !    Vb(:,j) = Vb(:,j) + S(m,j)*Ub(:,a+m)
-    ! enddo
   end function Dual_State
 
 
@@ -821,7 +748,11 @@ contains
     allocate(PSzP(Nocc,Nocc))
     allocate(Epsp(Nocc))
     PSzP = matmul( conjg(transpose(U(:,1:Nocc))), matmul(Sz,U(:,1:Nocc)) )
+#ifdef _SCALAPACK
+    call p_eigh(PSzP,Epsp,Nblock)
+#else
     call eigh(PSzP,Epsp)
+#endif
   end subroutine eigh_PSzP
   !
   function PSzP_Matrix() result(PSzP)
@@ -946,9 +877,6 @@ contains
 
 
 
-
-
-
   subroutine t_start()
     call cpu_time(ti)
   end subroutine t_start
@@ -964,6 +892,8 @@ contains
   end subroutine t_stop
 
 
+
+  
 END MODULE LCM_SQUARE
 
 

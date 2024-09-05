@@ -10,6 +10,7 @@ MODULE COMMON
   integer                                   :: Ny=0
   integer                                   :: Nlso=0
   integer                                   :: Nocc=0
+  integer                                   :: Nblock=0
   !
   integer                                   :: Nk
   integer                                   :: Nkpath,Npts
@@ -164,6 +165,9 @@ contains
   !------------------------------------------------------------------
   subroutine check_dimension(caller)
     character(len=*) :: caller
+#ifdef _SCALAPACK
+    if(Nblock==0)stop str(caller)//" error: Nblock not set"
+#endif
     if(Nlso==0)stop str(caller)//" error: Nlso not set"
     if(Nso==0)stop str(caller)//" error: Nso not set"
     if(Nx==0)stop str(caller)//" error: Nx not set"
@@ -178,9 +182,7 @@ contains
     if(allocated(E))call assert_shape(E,[Nlso],"check_dimension","E")
     if(allocated(Sz))call assert_shape(Sz,[Nlso,Nlso],"check_dimension","Sz")
     if(allocated(PSzP))call assert_shape(PSzP,[Nocc,Nocc],"check_dimension","PSzP")
-    if(allocated(Epsp))call assert_shape(Epsp,[Nocc],"check_dimension","Epsp")    
-    ! stop str(caller)//" error: "
-    ! stop str(caller)//" error: "
+    if(allocated(Epsp))call assert_shape(Epsp,[Nocc],"check_dimension","Epsp")
   end subroutine check_dimension
 
 
@@ -241,12 +243,13 @@ contains
     do concurrent(ilat=1:Nlat,io=1:Nso,jo=1:Nso,i=1:Lfreq)
        is = io + (ilat-1)*Nso
        js = jo + (ilat-1)*Nso
-       Gloc(ilat,io,jo,i) = sum(U(is,:)*conjg(U(js,:))*csi(:,i))
+       Gloc(ilat,io,jo,i) = sum(U(is,:)*conjg(U(js,:))*csi(:,i))!can use matmul
     enddo
     call stop_timer
   end subroutine get_gf
 
 
+  
   function build_frequency_array(axis) result(wfreq)
     character(len=*)                    :: axis
     complex(8),dimension(:),allocatable :: wfreq
