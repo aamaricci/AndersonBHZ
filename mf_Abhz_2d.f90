@@ -1,259 +1,253 @@
-!> Solve the 2D BHZ + Kanamori n.n + Disorder model using Mean-Field
-program MF_bhz_2d_Anderson
-  USE SCIFOR
-  USE DMFT_TOOLS
+! MODEL Hamiltonian is: H + \eta*\Gamma_\eta
+! H in k-space reads:
+! |     h^{2x2}(k)              &            0d0              |
+! |         0d0                 &        [h^{2x2}]*(-k)       |
+!
+!
+! h^{2x2}(k):=
+!
+! | m-(Cos{kx}+Cos{ky})         & \lambda*(Sin{kx}-i*Sin{ky}) |
+! | \lambda*(Sin{kx}+i*Sin{ky}) & -m+(Cos{kx}+Cos{ky})        |
+!
+!\eta is a random variable uniformly distributed within -W:W
+! acting in the channel defined by the Gamma matrix \Gamma_\eta
+! \eta=0 => N disorder
+! \eta=1 => Tz disorder
+! \eta=2 => Sz disorder
+program mf_anderson_bhz_2d
+  USE COMMON
+  USE LCM_SQUARE
   implicit none
-  integer,parameter                             :: Norb=2,Nspin=2,Nso=Nspin*Norb
-  integer                                       :: Nk,Nktot,Nkx,Nky,Nkz,L
-  integer                                       :: Nlat,Nx,Ny,Nz
-  integer                                       :: Nkpath,Npts,z2(4)
-  integer                                       :: i,j,k,ik
-  integer                                       :: io,jo,ispin
-  integer                                       :: iorb,ilat,jorb,jlat
-  integer                                       :: ix,iy,iz
-  real(8)                                       :: kx,ky,kz
-  real(8),dimension(:),allocatable              :: Wtk,Evals,rhoDiag,Erandom
-  real(8),dimension(:,:),allocatable            :: kpath,ktrims,Kgrid,Rgrid,Ldens
-  integer,dimension(:,:),allocatable          :: Links
-  complex(8),dimension(:,:,:),allocatable       :: Hij,HijMF
-  complex(8),dimension(:,:,:,:),allocatable     :: Hlat
-  integer                                       :: Iter,MaxIter,Nsuccess=2,Idum,Nblock
-  real(8)                                       :: chern,Uloc,Jh,JU,Sz,Tz,Rz,Ntot
-  real(8)                                       :: mh,lambda,delta,lz,Wdis
-  real(8)                                       :: xmu,beta,eps,Ekin,Eloc
-  real(8)                                       :: n(Nso),arg,dens(Nso),wmix,it_error,sb_field
-  complex(8)                                    :: Hloc(Nso,Nso),Htmp(Nso,Nso)
-  complex(8),dimension(:,:,:,:,:,:),allocatable :: GLmats,GLreal
-  character(len=20)                             :: file
-  logical                                       :: iexist,converged,with_mats_gf,with_real_gf,bool
-  complex(8),dimension(Nso,Nso)                 :: Gamma0,Gamma5,GammaX,GammaY,GammaZ,GammaS
-  real(8),dimension(3)                          :: vecK,vecRi,vecRj
-  complex(8),dimension(:,:),allocatable         :: rhoH
-  real(8),dimension(:,:),allocatable            :: params,params_prev,global_params
-  integer                                       :: disorder_type !0=scalar disorder, 1=magnetic_disorder
+  integer,parameter                         :: Norb=2,Nspin=2
+  real(8)                                   :: Uloc,Jh
+  real(8)                                   :: z2,sp_chern(2)
+  real(8),dimension(:),allocatable          :: Ev
+  complex(8),dimension(:,:),allocatable     :: H
+  real(8),dimension(:,:,:),allocatable      :: Nii
+  real(8),dimension(:),allocatable          :: Tzii,Szii
+  complex(8),dimension(:,:,:,:),allocatable :: Gf
+  integer                                   :: ilat,iorb,ispin,io
+  logical                                   :: converged,iexist
+  integer                                   :: Iter,Nsuccess=2
+  real(8),dimension(:,:),allocatable        :: params,params_prev
+
+  call init_MPI()
+  call init_BLACS()
+  master = get_master_BLACS()
 
 
-  call parse_input_variable(nkx,"NKX","inputBHZ.conf",default=25)
-  call parse_input_variable(nkpath,"NKPATH","inputBHZ.conf",default=500)
-  call parse_input_variable(L,"L","inputBHZ.conf",default=2048)
-  call parse_input_variable(Wdis,"WDIS","inputBHZ.conf",default=0d0)
-  call parse_input_variable(idum,"IDUM","inputBHZ.conf",default=1234567)
-  call parse_input_variable(nblock,"NBLOCK","inputBHZ.conf",default=2)
-  call parse_input_variable(disorder_type,"DISORDER_TYPE","inputBHZ.conf",default=0)
-  call parse_input_variable(Uloc,"ULOC","inputBHZ.conf",default=1d0)
-  call parse_input_variable(Jh,"Jh","inputBHZ.conf",default=0.125d0)
-  call parse_input_variable(mh,"MH","inputBHZ.conf",default=3.d0)
-  call parse_input_variable(lambda,"LAMBDA","inputBHZ.conf",default=0.3d0)
-  call parse_input_variable(xmu,"XMU","inputBHZ.conf",default=0.d0)
-  call parse_input_variable(eps,"EPS","inputBHZ.conf",default=4.d-2)
-  call parse_input_variable(beta,"BETA","inputBHZ.conf",default=1000.d0)
-  call parse_input_variable(wmix,"WMIX","inputBHZ.conf",default=0.5d0)
-  call parse_input_variable(sb_field,"SB_FIELD","inputBHZ.conf",default=0.01d0)
-  call parse_input_variable(it_error,"IT_ERROR","inputBHZ.conf",default=1d-5)
-  call parse_input_variable(maxiter,"MAXITER","inputBHZ.conf",default=100)
-  call parse_input_variable(with_mats_gf,"WITH_MATS_GF","inputBHZ.conf",default=.false.)
-  call parse_input_variable(with_real_gf,"WITH_REAL_GF","inputBHZ.conf",default=.false.)
-  call save_input_file("inputBHZ.conf")
+  
+  !Read input:
+  call parse_cmd_variable(inputFILE,"inputFILE",default="inputABHZ.conf")
+  call parse_input_variable(Nx,"Nx",inputFILE,default=10)
+  call parse_input_variable(Wdis,"WDIS",inputFILE,default=0d0)
+  call parse_input_variable(idum,"IDUM",inputFILE,default=1234567)
+  call parse_input_variable(disorder_type,"DISORDER_TYPE",inputFILE,default=0)
+  call parse_input_variable(bhz_pbc,"BHZ_PBC",inputFILE,default=.true.)
+  call parse_input_variable(mh,"MH",inputFILE,default=3.d0)
+  call parse_input_variable(lambda,"LAMBDA",inputFILE,default=0.3d0)
+  call parse_input_variable(uloc,"ULOC",inputFILE,default=0.5d0)
+  call parse_input_variable(Jh,"JH",inputFILE,default=0.1d0)
+  call parse_input_variable(xmu,"XMU",inputFILE,default=0.d0)
+  call parse_input_variable(beta,"BETA",inputFILE,default=1000.d0)
+  call parse_input_variable(wmix,"WMIX",inputFILE,default=0.5d0)
+  call parse_input_variable(Lfreq,"Lfreq",inputFILE,default=1024)
+  call parse_input_variable(wmin,"WMIN",inputFILE,default=-5d0)
+  call parse_input_variable(wmax,"wmax",inputFILE,default= 5d0)
+  call parse_input_variable(eps,"EPS",inputFILE,default=4.d-2)
+  call parse_input_variable(sb_field,"SB_FIELD",inputFILE,default=0.01d0)
+  call parse_input_variable(it_error,"IT_ERROR",inputFILE,default=1d-5)
+  call parse_input_variable(maxiter,"MAXITER",inputFILE,default=100)
+  call parse_input_variable(with_lcm,"WITH_lcm",inputFILE,default=.false.)
+  call parse_input_variable(with_mats_gf,"WITH_MATS_GF",inputFILE,default=.false.)
+  call parse_input_variable(with_real_gf,"WITH_REAL_GF",inputFILE,default=.false.)
+  call parse_input_variable(Nblock,"NBLOCK",inputFILE,default=4)
+  call save_input_file(inputFILE)
   call print_input()
   !
+  !
+
+  !Save variables into DMFT_TOOLS memory pool
   call add_ctrl_var(beta,"BETA")
   call add_ctrl_var(Norb,"NORB")
   call add_ctrl_var(Nspin,"Nspin")
   call add_ctrl_var(xmu,"xmu")
-  call add_ctrl_var(-10d0,"wini")
-  call add_ctrl_var(10d0,"wfin")
+  call add_ctrl_var(wmin,"wini")
+  call add_ctrl_var(wmax,"wfin")
   call add_ctrl_var(eps,"eps")
 
-  !SOLVE AND PLOT THE FULLY HOMOGENOUS PROBLEM:
-  !< Momentum space:
-  Nky = Nkx
-  Nktot=Nkx*Nky
-  !
-  !< Real space
-  Nx = Nkx
-  Ny = Nkx
+
+  !SETUP COMMON DIMENSION
+  Ny   = Nx
+  Nk   = Nx*Ny
   Nlat = Nx*Ny
+  !
+  Nso  = Nspin*Norb
+  Nlso = Nlat*Nso
+  Nocc = Nlso/2
 
   !SETUP THE GAMMA MATRICES:
-  gamma0=kron_pauli( pauli_tau_0, pauli_sigma_0)
-  gammaX=kron_pauli( pauli_tau_z, pauli_sigma_x)
-  gammaY=kron_pauli( pauli_tau_0,-pauli_sigma_y)
-  gammaZ=kron_pauli( pauli_tau_x, pauli_sigma_x)
-  gamma5=kron_pauli( pauli_tau_0, pauli_sigma_z)
-  gammaS=kron_pauli( pauli_tau_z, pauli_sigma_0)
-
-  !< Build disorder:
-  allocate(erandom(Nlat))
-  call mersenne_init(idum)
-  call mt_random(erandom)
-  erandom=(2d0*erandom-1d0)*Wdis/2d0
-  inquire(file='erandom_'//str(idum)//'.restart',exist=bool)
-  if(bool)then
-     if(file_length('erandom_'//str(idum)//'.restart')/=Nlat)&
-          stop "mf_bhz_2d_anderson error: found erandom.restart with length different from Nlat"
-     call read_array('erandom_'//str(idum)//'.restart',erandom)
-  endif
-  call save_array('erandom_'//str(idum)//'.used',erandom)
-  !
+  gamma0 = kron( pauli_sigma_0, pauli_tau_0)
+  gammaX = kron( pauli_sigma_z, pauli_tau_x)
+  gammaY = kron( pauli_sigma_0,-pauli_tau_y)
+  gamma5 = kron( pauli_sigma_0, pauli_tau_z)
+  gammaS = kron( pauli_sigma_z, pauli_tau_0)
 
 
-
-  !< start using TB_procedures:
-  !< 1st set up the direct and momentum space lattice basis
+  !Set the basis vectors square lattice
   call TB_set_ei([1d0,0d0],[0d0,1d0])
   call TB_set_bk([pi2,0d0],[0d0,pi2])
 
-
-  allocate(Hlat(Nso,Nso,Nlat,Nlat))
-  allocate(Links(4,2))
-  !
-  Links(1,:) = [1,0]
-  Links(2,:) = [0,1]
-  Links(3,:) = [-1,0]
-  Links(4,:) = [0,-1]
-  print*,"Building up Hlat model"
-  call TB_build_model(Hlat,ts_model,Nso,[Nkx,Nky],Links,pbc=.true.)
-  !
-  !Add DISORDER TERM TO H_0
-  select case(disorder_type)
-  case(0)
-     do ilat=1,Nlat
-        Hlat(:,:,ilat,ilat) = Hlat(:,:,ilat,ilat) + erandom(ilat)*Gamma0
-     enddo
-  case(1)
-     do ilat=1,Nlat
-        Hlat(:,:,ilat,ilat) = Hlat(:,:,ilat,ilat) + erandom(ilat)*GammaS
-     enddo
-  case(2)
-     do ilat=1,Nlat
-        Hlat(:,:,ilat,ilat) = Hlat(:,:,ilat,ilat) + erandom(ilat)*Gamma5
-     enddo
-  case default
-     stop "disorder_type not [0:2]"
-  end select
-  !
-  !Dump Hlat into H* with shape(Nlso,Nlso,Nk==1) to be used later
-  allocate(Hij(Nlat*Nso,Nlat*Nso,1))
-  Hij = zero
-  do ilat=1,Nlat
-     do jlat=1,Nlat
-        do io=1,Nso
-           do jo=1,Nso
-              i = io + (ilat-1)*Nso
-              j = jo + (jlat-1)*Nso
-              Hij(i,j,1) = Hlat(io,jo,ilat,jlat)
-           enddo
-        enddo
-     enddo
-  enddo
+  !SOLVE THE HOMOGENOUS PROBLEM:  
+  if(master)write(*,*) "Solve homogeneous model with Nk="//str(Nk)
+  allocate(Hk(Nso,Nso,Nk))
+  call TB_build_model(Hk,hk_model,Nso,[Nx,Ny])
+  z2 = hk_to_spin_Chern(Hk,[Nx,Ny],spin=1)
+  if(master)write(*,*)"get spin Chern UP:",z2
+  z2 = hk_to_spin_Chern(Hk,[Nx,Ny],spin=2)
+  if(master)write(*,*)"get spin Chern DW:",z2
+  z2 = hk_to_spin_Chern(Hk,[Nx,Ny])
+  if(master)write(*,*)"get Z2:",z2
+  if(master)write(*,*)""
+  if(master)write(*,*)""
+  deallocate(Hk)
 
 
+
+  !< Build up disorder:
+  call setup_Abhz()
 
 
   !Start MF HERE:
-  allocate(params(Nlat,2))
-  allocate(params_prev(Nlat,2))
+  !>Read OR INIT MF params
+  allocate(params(Nlat,2),params_prev(Nlat,2))
   do ilat=1,Nlat
-     params(ilat,:)        = [sb_field,sb_field]   ![Tz,Sz]
+     params(ilat,:)= [sb_field,sb_field]   ![Tz,Sz]
   enddo
   inquire(file="params.restart",exist=iexist)
   if(iexist)then
      call read_array("params.restart",params)     
      params(:,2)=params(:,2)+sb_field
   endif
-  call save_array("params.init",params)
   !
-  !DO MEAN-FIELD CYCLE
-  open(100,file="tz_sz.dat")
-  open(101,file="dens_1.dat")
-  open(102,file="dens_2.dat")
+  !> Mean-Field cycle with linear mixing
+  if(master)call save_array("params.init",params)
   converged=.false. ; iter=0
   do while(.not.converged.AND.iter<maxiter)
      iter=iter+1
      call start_loop(iter,maxiter,"MF-loop")
      !
-     call symmetrize_params(params)
+     !call symmetrize_params(params)
      call solve_MF_bhz(iter,params)
+     if(master)then
+        call save_array("Ebhz.dat",Ev)
+        call save_array("sz_"//str(idum)//".dat",Szii)
+        call save_array("tz_"//str(idum)//".dat",Tzii)
+        call save_array("n_l1s1_"//str(idum)//".dat",Nii(:,1,1))
+        call save_array("n_l2s1_"//str(idum)//".dat",Nii(:,1,2))
+        call save_array("n_l2s1_"//str(idum)//".dat",Nii(:,2,1))
+        call save_array("n_l2s2_"//str(idum)//".dat",Nii(:,2,2))
+     endif
+     !
      if(iter>1)params = wmix*params + (1d0-wmix)*params_prev
      params_prev = params
      !
-     converged = check_convergence_local(params,it_error,nsuccess,maxiter) 
+     converged = check_convergence_local(params,it_error,1,maxiter) 
      !
      call end_loop
   end do
-  call save_array("params.restart",params)
-  close(100)
-  close(101)
-  close(102)
+  if(master)call save_array("params.restart",params)
 
 
-  !< BUILD THE LOCAL GF
+  call push_Bloch(H,Ev)
+
+  !Get topological info:
+  sp_chern(1) = single_point_spin_chern(spin=1)
+  sp_chern(2) = single_point_spin_chern(spin=2)
+  if(master)call save_array("spin_chern.dat",sp_chern)
+  if(master)print*,"spin_Chern UP,DW:",sp_chern
+  !
+  if(with_lcm)then
+     call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
+     if(master)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+  endif
+
+
+  !< Get GF:
   if(with_mats_gf)then
-     allocate(GLmats(Nlat,Nspin,Nspin,Norb,Norb,L))
-     allocate(HijMF(Nlat*Nso,Nlat*Nso,1))
-     HijMF(:,:,1) = get_Hmf(params,Hij)
-     call dmft_gloc_matsubara(HijMF,GLmats,zeros(Nlat,Nspin,Nspin,Norb,Norb,L))
-     call dmft_print_gf_matsubara(GLmats,"Gloc",iprint=1)
+     allocate(Gf(Nlat,Nso,Nso,Lfreq))
+     call get_gf(Gf,'mats')
+     if(master)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=5,itar=.true.)
+     deallocate(Gf)
   endif
 
   if(with_real_gf)then
-     allocate(GLreal(Nlat,Nspin,Nspin,Norb,Norb,L))
-     allocate(HijMF(Nlat*Nso,Nlat*Nso,1))
-     HijMF(:,:,1) = get_Hmf(params,Hij)
-     call dmft_gloc_realaxis(HijMF,GLreal,zeros(Nlat,Nspin,Nspin,Norb,Norb,L))
-     call dmft_print_gf_realaxis(GLreal,"Gloc",iprint=1)
+     allocate(Gf(Nlat,Nso,Nso,Lfreq))
+     call get_gf(Gf,'real')
+     if(master)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=5,itar=.true.)
+     deallocate(Gf)
   endif
 
 
-  
 
-  
+  !call finalize_MPI()
+  call finalize_BLACS()
+
+
+
+
 contains
 
 
 
 
   subroutine solve_MF_bhz(iter,a)
+    integer                                 :: iter
     real(8),dimension(Nlat,2),intent(inout) :: a
-    complex(8),dimension(Nlat*Nso,Nlat*Nso) :: Hmat,rhoDiag
-    real(8),dimension(Nlat*Nso)             :: Evals!,rhoDiag
-    real(8),dimension(Nlat*Nso,Nlat*Nso)    :: rhoH!,rhoDiag
-    real(8)                                 :: dens(Nlat,Nspin,Norb)
-    integer                                 :: iter,iorb,ispin
-    !
-    Hmat = Hij(:,:,1) + mf_Hij_correction(a)
-    !
-#ifdef _W_SCALAPACK
-    call p_eigh(Hmat,Evals,Nblock)       !diag Hij -> Ea_i
+#ifdef _SCALAPACK
+    complex(8),dimension(Nlso,NLso)         :: fE
 #else
-    call eigh(Hmat,Evals)       !diag Hij -> Ea_i
+    real(8),dimension(Nlso)                 :: fE
 #endif
-
-    rhoDiag = diag(fermi(Evals,beta))
-#ifdef _W_SCALAPACK
-    rhoH    = ( Hmat.px.rhoDiag ).px.conjg(transpose(Hmat))
+    complex(8),dimension(Nlso,NLso)         :: Rho
+    integer                                 :: io,jo,ilat,iorb,ispin
+    !
+    !
+    if(.not.allocated(Nii))allocate(Nii(Nlat,Nspin,Norb))
+    if(.not.allocated(Szii))allocate(Szii(Nlat))
+    if(.not.allocated(Tzii))allocate(Tzii(Nlat))
+    if(.not.allocated(H))allocate(H(Nlso,Nlso))
+    if(.not.allocated(Ev))allocate(Ev(Nlso))
+    !
+    H = Hij(:,:,1) + mf_Hij_correction(a)
+    !
+#ifdef _SCALAPACK
+    call p_eigh(H,Ev,Nblock)
 #else
-    rhoH    = matmul(Hmat , matmul(rhoDiag, conjg(transpose(Hmat))) )
+    call eigh(H,Ev)
 #endif
     !
-    dens = 0d0        
-    do ilat=1,Nlat
-       do ispin=1,Nspin
-          do iorb=1,Norb
-             io = iorb+(ispin-1)*Norb+(ilat-1)*Nspin*Norb
-             dens(ilat,ispin,iorb) = rhoH(io,io)
-          enddo
-       enddo
-       a(ilat,1) = 0.5d0*sum(dens(ilat,:,1)) - 0.5d0*sum(dens(ilat,:,2)) !Tz = N_1  - N_2
-       a(ilat,2) = 0.5d0*sum(dens(ilat,1,:)) - 0.5d0*sum(dens(ilat,2,:)) !Sz = N_up - N_dw
-    enddo
+    !Actual solution:
+#ifdef _SCALAPACK
+    fE  = one*diag(fermi(Ev,beta))
+    Rho = ( H.px.fE ).px.conjg(transpose(H))
+#else
+    fE  = fermi(Ev,beta)
+    Rho = matmul(H , matmul(diag(fE), conjg(transpose(H))) )
+#endif
     !
-    rewind(100);rewind(101);rewind(102)
-    do ilat=1,Nlat
-       write(100,*)a(ilat,1),a(ilat,2)
-       write(101,*)(dens(ilat,ispin,1),ispin=1,Nspin)
-       write(102,*)(dens(ilat,ispin,2),ispin=1,Nspin)
+    !Get observables:
+    do concurrent(ilat=1:Nlat,ispin=1:Nspin,iorb=1:Norb)
+       io = iorb+(ispin-1)*Norb+(ilat-1)*Nspin*Norb
+       Nii(ilat,ispin,iorb) = Rho(io,io)
     enddo
+    do ilat=1,Nlat
+       Tzii(ilat) = 0.5d0*sum(Nii(ilat,:,1)) - 0.5d0*sum(Nii(ilat,:,2)) !N_1  - N_2
+       Szii(ilat) = 0.5d0*sum(Nii(ilat,1,:)) - 0.5d0*sum(Nii(ilat,2,:)) !N_up - N_dw
+    enddo
+    a(:,1) = Tzii
+    a(:,2) = Szii
+    if(master)call stop_timer()
   end subroutine solve_MF_bhz
 
 
@@ -277,25 +271,6 @@ contains
 
 
 
-  function ts_model(link,Nso) result(Hts)
-    integer                       :: link
-    integer                       :: Nso
-    complex(8),dimension(Nso,Nso) :: Hts
-    select case(link)
-    case (0) !LOCAL PART
-       Hts =  Mh*Gamma5 
-    case (1) !RIGHT HOPPING
-       Hts = -0.5d0*Gamma5 + xi*0.5d0*lambda*GammaX
-    case (2) !UP HOPPING
-       Hts = -0.5d0*Gamma5 + xi*0.5d0*lambda*GammaY
-    case (3) !LEFT HOPPING
-       Hts = -0.5d0*Gamma5 - xi*0.5d0*lambda*GammaX
-    case (4) !DOWN HOPPING
-       Hts = -0.5d0*Gamma5 - xi*0.5d0*lambda*GammaY
-    case default 
-       stop "ts_model ERROR: link index in {0..6}"
-    end select
-  end function ts_model
 
 
   function get_Hmf(a,Hij) result(Hmat)
@@ -309,7 +284,7 @@ contains
 
   subroutine symmetrize_params(a)
     real(8),dimension(Nlat,Nso) :: a
-    integer :: ilat
+    integer                     :: ilat
     do ilat=2,Nlat
        a(ilat,:) = a(1,:)
     enddo
@@ -317,7 +292,7 @@ contains
 
 
 
-end program
+end program mf_anderson_bhz_2d
 
 
 

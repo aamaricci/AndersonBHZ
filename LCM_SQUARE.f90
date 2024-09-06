@@ -64,7 +64,7 @@ contains
     do ikx=1,Nkx
        do iky=1,Nky
           ik=ik+1
-          Eigvec = Hk(:,:,ik)
+          Eigvec = Hk(:,:,ik)          
           call eigh(Eigvec,Eigval)
           do iocc=1,Nocc
              BlochStates(ikx,iky,iocc,:) = Eigvec(:,iocc)
@@ -106,16 +106,17 @@ contains
        enddo
     enddo
     !
-    open(unit=free_unit(unit),file="Hk_to_Chern.dat")
-    write(unit,*)chern
-    close(unit)
-    !
-    if(bool)&
-         call splot3d("Berry_Curvature.dat",&
-         linspace(0d0,pi2,Nkx,iend=.false.),&
-         linspace(0d0,pi2,Nky,iend=.false.),&
-         BerryCurvature(:Nkx,:Nky))
-    !
+    if(master)then
+       open(unit=free_unit(unit),file="Hk_to_Chern.dat")
+       write(unit,*)chern
+       close(unit)
+       !
+       if(bool)&
+            call splot3d("Berry_Curvature.dat",&
+            linspace(0d0,pi2,Nkx,iend=.false.),&
+            linspace(0d0,pi2,Nky,iend=.false.),&
+            BerryCurvature(:Nkx,:Nky))
+    endif
   end function hk_to_Chern
 
   !+------------------------------------------------------------------+
@@ -195,9 +196,11 @@ contains
                 chern(ispin)= chern(ispin) + berry_phase
              enddo
              sp_chern = 0.5d0*(chern(1)-chern(2))
-             open(unit=free_unit(unit),file="Hk_to_z2.dat")
-             write(unit,*)sp_chern
-             close(unit)
+             if(master)then
+                open(unit=free_unit(unit),file="Hk_to_z2.dat")
+                write(unit,*)sp_chern
+                close(unit)
+             endif
           case(1,2)
              ispin=spin_
              Ulink(1)    = dot_product(BlochStates(ikx,iky,ispin,:)  , BlochStates(ikx,ikyP,ispin,:))
@@ -209,9 +212,11 @@ contains
              if(present(berry))&
                   berry(ikx,iky) = berry_phase!*one_over_area=Nkx/pi2*Nkx/pi2
              sp_chern = chern(ispin)
-             open(unit=free_unit(unit),file="Hk_to_spin_Chern_s"//str(spin_)//".dat")
-             write(unit,*)sp_chern
-             close(unit)
+             if(master)then
+                open(unit=free_unit(unit),file="Hk_to_spin_Chern_s"//str(spin_)//".dat")
+                write(unit,*)sp_chern
+                close(unit)
+             endif
           end select
        enddo
     enddo
@@ -251,7 +256,7 @@ contains
     !
     call TB_get_bk(b1,b2)
     !
-    call start_timer("single_point_chern")
+    if(master)call start_timer("single_point_chern")
     !
     Ub1 = periodic_gauge(U,b1)
     Ub2 = periodic_gauge(U,b2)
@@ -274,7 +279,7 @@ contains
        enddo
     end if
     !
-    call stop_timer()
+    if(master)call stop_timer()
     !
     sp_chern = dimag(sum_chern)/pi
     !
@@ -315,7 +320,7 @@ contains
     !
     call check_Pgap(N,"single_point_spin_chern")
     !
-    call start_timer("single_point_spinChern_s"//str(spin))
+    if(master)call start_timer("single_point_spinChern_s"//str(spin))
     !
     !|q_i0> = sum_m=1,Nocc q_i(m)|u_m0>
     ! q     = U x P_{a'b'} [Nlso,Nocc]
@@ -343,7 +348,7 @@ contains
        enddo
     end if
     !
-    call stop_timer()
+    if(master)call stop_timer()
     !
     sp_chern = dimag(sum_chern)/pi
     !
@@ -376,7 +381,7 @@ contains
     allocate(Xcomm_P(Nlso,Nlso))
     allocate(Ycomm_P(Nlso,Nlso))
     !
-    call start_timer("obc_local_ChernMarker")
+    if(master)call start_timer("obc_local_ChernMarker")
     !
     P = matmul( U(:,1:Nocc),transpose(conjg(U(:,1:Nocc))) )
     !
@@ -398,7 +403,7 @@ contains
           lcm(ix,iy) = trace(Q4(:,:,ilat,ilat))
        enddo
     enddo
-    call stop_timer()
+    if(master)call stop_timer()
     !
   end subroutine obc_local_chern_marker
 
@@ -433,7 +438,7 @@ contains
     !
     call check_Pgap(N,"OBC_local_spin_chern_marker")
     !
-    call start_timer("obc_local_spinChernMarker_s"//str(spin))
+    if(master)call start_timer("obc_local_spinChernMarker_s"//str(spin))
     !
     allocate(Q(Nlso,Nocc))
     Q = matmul( U(:,1:Nocc), PSzP ) 
@@ -460,7 +465,7 @@ contains
        enddo
     enddo
     !
-    call stop_timer()
+    if(master)call stop_timer()
     !
   end subroutine obc_local_spin_chern_marker
 
@@ -497,7 +502,7 @@ contains
     !
     call TB_get_bk(b1,b2)
     !
-    call start_timer("pbc_local_ChernMarker")
+    if(master)call start_timer("pbc_local_ChernMarker")
     !
     Ub1 = periodic_gauge(U,b1)
     Ub2 = periodic_gauge(U,b2)
@@ -536,7 +541,7 @@ contains
        enddo
     enddo
     !
-    call stop_timer()
+    if(master)call stop_timer()
     !
   end subroutine pbc_local_chern_marker
 
@@ -584,7 +589,7 @@ contains
     call check_Pgap(N,"pbc_local_spinChernMarker")
     !
     !
-    call start_timer("pbc_local_spinChernMarker_s"//str(spin))
+    if(master)call start_timer("pbc_local_spinChernMarker_s"//str(spin))
     !
     allocate(Q(Nlso,Nocc))!;Q=zero
     Q = matmul( U(:,1:Nocc), PSzP ) 
@@ -632,7 +637,7 @@ contains
        enddo
     enddo
     !
-    call stop_timer()
+    if(master)call stop_timer()
     !
   end subroutine pbc_local_spin_chern_marker
 
@@ -704,12 +709,11 @@ contains
     allocate(S(N,N))
     S = matmul( transpose(conjg(U(:,a+1:a+N))), Ub(:,a+1:a+N) )
     !
-#ifdef _SCALAPACK
-    call p_inv(S,Nblock)
-#else
+! #ifdef _SCALAPACK
+!     call p_inv(S,Nblock)
+! #else
     call inv(S)
-#endif
-
+! #endif
     !
     if(allocated(Vb))deallocate(Vb)
     allocate(Vb(Nlso,N))
@@ -789,7 +793,7 @@ contains
        else
           b = mu
        endif
-       print*,iter,err
+       if(master)print*,iter,err
        if(abs(err)<eps)return
     enddo
     stop "ERROR chemical_potential: failed after 200 iterations"
@@ -885,9 +889,9 @@ contains
     character(len=*),optional :: msg
     call cpu_time(tf)
     if(present(msg))then
-       write(*,'(A,1x,"Time = ",f6.3," seconds.")')msg,tf-ti
+       if(master)write(*,'(A,1x,"Time = ",f6.3," seconds.")')msg,tf-ti
     else
-       write(*,'("Time = ",f6.3," seconds.")')tf-ti
+       if(master)write(*,'("Time = ",f6.3," seconds.")')tf-ti
     endif
   end subroutine t_stop
 

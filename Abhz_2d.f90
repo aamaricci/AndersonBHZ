@@ -17,9 +17,7 @@
 program anderson_bhz_2d
   USE COMMON
   USE LCM_SQUARE
-#ifdef _SCALAPACK
-  USE MPI, only: MPI_Wtime
-#endif
+
   implicit none
 
   integer,parameter                         :: Norb=2,Nspin=2
@@ -29,10 +27,16 @@ program anderson_bhz_2d
   complex(8),dimension(:,:),allocatable     :: H
   real(8),dimension(:,:,:),allocatable      :: Nii
   real(8),dimension(:),allocatable          :: Tzii,Szii
-  logical                                   :: master
   complex(8),dimension(:,:,:,:),allocatable :: Gf
   integer                                   :: ilat,iorb,ispin,io
 
+
+  call init_MPI()
+  call init_BLACS()
+  master = get_master_BLACS()
+
+
+  
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="inputABHZ.conf")
   call parse_input_variable(Nx,"Nx",inputFILE,default=10)
@@ -69,9 +73,8 @@ program anderson_bhz_2d
   call add_ctrl_var(wmax,"wfin")
   call add_ctrl_var(eps,"eps")
 
-  call init_BLACS()
-  master = get_master_BLACS()
 
+  
   !SETUP COMMON DIMENSION
   Ny   = Nx
   Nk   = Nx*Ny
@@ -180,7 +183,7 @@ contains
     if(.not.allocated(H))allocate(H(Nlso,Nlso))
     if(.not.allocated(Ev))allocate(Ev(Nlso))
     !
-    call start_timer("Solve Anderson BHZ")
+    if(master)call start_timer("Solve Anderson BHZ")
     !
     H = Hij(:,:,1)
 #ifdef _SCALAPACK
@@ -208,7 +211,7 @@ contains
        Tzii(ilat) = 0.5d0*sum(Nii(ilat,:,1)) - 0.5d0*sum(Nii(ilat,:,2)) !N_1  - N_2
     enddo
     !
-    call stop_timer()
+    if(master)call stop_timer()
   end subroutine solve_Anderson_BHZ
 
 

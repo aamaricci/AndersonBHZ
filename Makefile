@@ -13,7 +13,7 @@ DIREXE=$(HOME)/.bin
 #$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
 #$ LIB_SS: specify slave spins library if any
 #$ LIB_TB: specify custom tight-binding library if any
-LIB_ED=edipack2
+#LIB_ED=edipack2
 #LIB_SS=slave_spins
 #LIB_TB=honeytools
 
@@ -52,8 +52,8 @@ ifeq ($(PLAT),gnu)
 FFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
 DFLAG = -w -O0 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
 AFLAG = -w -O0 -p -g  -fbacktrace -fwhole-file -fcheck=all -fbounds-check -fsanitize=address -fdebug-aux-vars -Wall -Waliasing -Wsurprising -Wampersand -Warray-bounds -Wc-binding-type -Wcharacter-truncation -Wconversion -Wdo-subscript -Wfunction-elimination -Wimplicit-interface -Wimplicit-procedure -Wintrinsic-shadow -Wintrinsics-std -Wno-align-commons -Wno-overwrite-recursive -Wno-tabs -Wreal-q-constant -Wunderflow -Wunused-parameter -Wrealloc-lhs -Wrealloc-lhs-all -Wfrontend-loop-interchange -Wtarget-lifetime
-FPPSERIAL =-cpp -D_
-FPPMPI =-cpp -D_SCALAPACK
+FPPSERIAL= -cpp -D_
+FPPMPI= -cpp -D_SCALAPACK
 endif
 
 
@@ -86,7 +86,8 @@ all: ${OBJS}
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
-	$(FC) ${OBJS} $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}	
 	@echo "Done"
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
@@ -96,27 +97,30 @@ mpi: ${OBJS}
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
-	$(FC) ${OBJS} $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}		
 	@echo "Done"
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
 
-debug: FLAG:=${DFLAG} ${FFPSERIAL}
+debug: FLAG:=${DFLAG} ${FPPSERIAL}
 debug: ${OBJS}
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
-	$(FC) ${OBJS} $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}		
 	@echo "Done"
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
 
-aggressive: FLAG:=${AFLAG} ${FPPMPI}
+aggressive: FLAG:=${AFLAG} ${FPPSERIAL}
 aggressive: ${OBJS}
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
-	$(FC) ${OBJS} $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}		
 	@echo "Done"
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
@@ -124,7 +128,7 @@ aggressive: ${OBJS}
 clean: 
 	@echo "Cleaning:"
 	@rm -f *.mod *.o *~
-	@rm -fv  $(DIREXE)/$(EXE)
+	@rm -fv  $(DIREXE)/$(EXE) $(DIREXE)/mf_$(EXE)
 
 .f90.o:	
 	$(FC) $(FLAG) -c $< ${GLOB_INC}

@@ -1,8 +1,10 @@
 MODULE COMMON
   USE SCIFOR
   USE DMFT_TOOLS
+#ifdef _SCALAPACK
+  USE MPI, only: MPI_Wtime
+#endif
   implicit none
-
 
   integer                                   :: Nso=0
   integer                                   :: Nlat=0
@@ -36,14 +38,9 @@ MODULE COMMON
   real(8)                                   :: sb_field
   real(8)                                   :: it_error
   integer                                   :: MaxIter
-  integer                                   :: Iter,Nsuccess=2
-  logical                                   :: converged
   logical                                   :: with_lcm
   logical                                   :: with_mats_gf
   logical                                   :: with_real_gf
-  real(8)                                   :: Uloc,Jh,JU
-  !Mean-Fields:
-  real(8)                                   :: mfSz,mfTz,mfRz,mfNt
   !Random 
   real(8),allocatable,dimension(:)          :: erandom
   !Hamiltonian
@@ -58,8 +55,8 @@ MODULE COMMON
   complex(8),dimension(:,:),allocatable     :: PSzP
   real(8),dimension(:),allocatable          :: E
   real(8),dimension(:),allocatable          :: Epsp
-
-
+  !MPI:
+  logical                                   :: master=.true.
 
 contains
 
@@ -113,6 +110,8 @@ contains
     allocate(erandom(Nlat))
     call check_dimension("setup_disorder")
     !
+    if(master)write(*,*)"Nlso=",Nlso
+    !
     allocate(Links(4,2))
     Links(1,:) = [1 ,0]
     Links(2,:) = [0 ,1]
@@ -130,7 +129,7 @@ contains
             stop "setup_disorder error: size(erandom_"//str(idum)//".restart) != Nlat"
        call read_array('erandom_'//str(idum)//'.restart',erandom)
     endif
-    call save_array('erandom_'//str(idum)//'.used',erandom)
+    if(master)call save_array('erandom_'//str(idum)//'.used',erandom)
     !
     do ilat=1,Nlat
        select case(disorder_type)
@@ -146,9 +145,11 @@ contains
     !Reshape:
     Hij(:,:,1) = reshape_rank4_to_rank2(Hlat,Nso,Nlat)
     !
-    open(99,file="list_idum.dat",access='append')
-    write(99,*)idum
-    close(99)
+    if(master)then
+       open(99,file="list_idum.dat",access='append')
+       write(99,*)idum
+       close(99)
+    endif
     !
     allocate(Sz(Nlso,Nlso))
     Sz = kron(eye(Nlat),GammaS)
@@ -204,7 +205,7 @@ contains
     endif
   end subroutine check_Pgap
 
-  
+
   subroutine check_Egap(n,caller)
     integer          :: N
     character(len=*) :: caller
@@ -223,7 +224,7 @@ contains
   end subroutine check_Egap
 
 
-  
+
   subroutine get_gf(Gloc,axis)
     complex(8),dimension(Nlat,Nso,Nso,Lfreq),intent(inout) :: Gloc
     character(len=*)                                       :: axis
@@ -233,23 +234,23 @@ contains
     !
     call check_dimension("get_gf")
     !
-    write(*,"(A)")"Get local Green's function, axis:"//str(axis)
+    if(master)write(*,"(A)")"Get local Green's function, axis:"//str(axis)
     wfreq = build_frequency_array(axis)
     !
     !Allocate and setup the Matsubara freq.
     forall(i=1:Lfreq)csi(:,i)=one/(wfreq(i)+xmu-E(:))
     !
-    call start_timer
+    if(master)call start_timer
     do concurrent(ilat=1:Nlat,io=1:Nso,jo=1:Nso,i=1:Lfreq)
        is = io + (ilat-1)*Nso
        js = jo + (ilat-1)*Nso
        Gloc(ilat,io,jo,i) = sum(U(is,:)*conjg(U(js,:))*csi(:,i))!can use matmul
     enddo
-    call stop_timer
+    if(master)call stop_timer
   end subroutine get_gf
 
 
-  
+
   function build_frequency_array(axis) result(wfreq)
     character(len=*)                    :: axis
     complex(8),dimension(:),allocatable :: wfreq
