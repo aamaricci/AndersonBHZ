@@ -4,8 +4,6 @@ MODULE LCM_SQUARE
   USE COMMON
   implicit none
 
-  real :: ti,tf
-
 
 
 
@@ -106,7 +104,7 @@ contains
        enddo
     enddo
     !
-    if(master)then
+    if(MPImaster)then
        open(unit=free_unit(unit),file="Hk_to_Chern.dat")
        write(unit,*)chern
        close(unit)
@@ -196,7 +194,7 @@ contains
                 chern(ispin)= chern(ispin) + berry_phase
              enddo
              sp_chern = 0.5d0*(chern(1)-chern(2))
-             if(master)then
+             if(MPImaster)then
                 open(unit=free_unit(unit),file="Hk_to_z2.dat")
                 write(unit,*)sp_chern
                 close(unit)
@@ -212,7 +210,7 @@ contains
              if(present(berry))&
                   berry(ikx,iky) = berry_phase!*one_over_area=Nkx/pi2*Nkx/pi2
              sp_chern = chern(ispin)
-             if(master)then
+             if(MPImaster)then
                 open(unit=free_unit(unit),file="Hk_to_spin_Chern_s"//str(spin_)//".dat")
                 write(unit,*)sp_chern
                 close(unit)
@@ -256,7 +254,7 @@ contains
     !
     call TB_get_bk(b1,b2)
     !
-    if(master)call start_timer("single_point_chern")
+    if(MPImaster)call start_timer("single_point_chern")
     !
     Ub1 = periodic_gauge(U,b1)
     Ub2 = periodic_gauge(U,b2)
@@ -279,7 +277,7 @@ contains
        enddo
     end if
     !
-    if(master)call stop_timer()
+    if(MPImaster)call stop_timer()
     !
     sp_chern = dimag(sum_chern)/pi
     !
@@ -320,12 +318,12 @@ contains
     !
     call check_Pgap(N,"single_point_spin_chern")
     !
-    if(master)call start_timer("single_point_spinChern_s"//str(spin))
+    if(MPImaster)call start_timer("single_point_spinChern_s"//str(spin))
     !
     !|q_i0> = sum_m=1,Nocc q_i(m)|u_m0>
     ! q     = U x P_{a'b'} [Nlso,Nocc]
     allocate(Q(Nlso,Nocc))
-    Q = matmul( U(:,1:Nocc), PSzP )
+    Q = (U(:,1:Nocc).mx.PSzP)
     !
     Qb1 = periodic_gauge(Q,b1)
     Qb2 = periodic_gauge(Q,b2)
@@ -348,7 +346,7 @@ contains
        enddo
     end if
     !
-    if(master)call stop_timer()
+    if(MPImaster)call stop_timer()
     !
     sp_chern = dimag(sum_chern)/pi
     !
@@ -381,7 +379,7 @@ contains
     allocate(Xcomm_P(Nlso,Nlso))
     allocate(Ycomm_P(Nlso,Nlso))
     !
-    if(master)call start_timer("obc_local_ChernMarker")
+    if(MPImaster)call start_timer("obc_local_ChernMarker")
     !
     P = matmul( U(:,1:Nocc),transpose(conjg(U(:,1:Nocc))) )
     !
@@ -403,7 +401,7 @@ contains
           lcm(ix,iy) = trace(Q4(:,:,ilat,ilat))
        enddo
     enddo
-    if(master)call stop_timer()
+    if(MPImaster)call stop_timer()
     !
   end subroutine obc_local_chern_marker
 
@@ -438,7 +436,7 @@ contains
     !
     call check_Pgap(N,"OBC_local_spin_chern_marker")
     !
-    if(master)call start_timer("obc_local_spinChernMarker_s"//str(spin))
+    if(MPImaster)call start_timer("obc_local_spinChernMarker_s"//str(spin))
     !
     allocate(Q(Nlso,Nocc))
     Q = matmul( U(:,1:Nocc), PSzP ) 
@@ -465,7 +463,7 @@ contains
        enddo
     enddo
     !
-    if(master)call stop_timer()
+    if(MPImaster)call stop_timer()
     !
   end subroutine obc_local_spin_chern_marker
 
@@ -502,7 +500,7 @@ contains
     !
     call TB_get_bk(b1,b2)
     !
-    if(master)call start_timer("pbc_local_ChernMarker")
+    if(MPImaster)call start_timer("pbc_local_ChernMarker")
     !
     Ub1 = periodic_gauge(U,b1)
     Ub2 = periodic_gauge(U,b2)
@@ -541,7 +539,7 @@ contains
        enddo
     enddo
     !
-    if(master)call stop_timer()
+    if(MPImaster)call stop_timer()
     !
   end subroutine pbc_local_chern_marker
 
@@ -589,40 +587,50 @@ contains
     call check_Pgap(N,"pbc_local_spinChernMarker")
     !
     !
-    if(master)call start_timer("pbc_local_spinChernMarker_s"//str(spin))
+    if(MPImaster)call start_timer("pbc_local_spinChernMarker_s"//str(spin))
     !
     allocate(Q(Nlso,Nocc))!;Q=zero
     Q = matmul( U(:,1:Nocc), PSzP ) 
     !
     !GS projectors Pgs_-, Pgs_+
     select case(spin)
-    case(1);Pgs = matmul( Q(:,1:N),transpose(conjg(Q(:,1:N))) )    
-    case(2);Pgs = matmul( Q(:,N+1:),transpose(conjg(Q(:,N+1:))) )
+    case(1);Pgs = Q(:,1:N) .mx. transpose(conjg(Q(:,1:N)))
+    case(2);Pgs = Q(:,N+1:).mx. transpose(conjg(Q(:,N+1:)))
+       ! case(1);Pgs = matmul(Q(:,1:N),transpose(conjg(Q(:,1:N))) )
+       ! case(2);Pgs = matmul(Q(:,N+1:),transpose(conjg(Q(:,N+1:))) )
     end select
     !
     Ub1 = periodic_gauge(Q,b1)
     Ub2 = periodic_gauge(Q,b2)
     Vb1 = dual_state(Q,Ub1,spin)
     Vb2 = dual_state(Q,Ub2,spin)
-    Pb1 = matmul( Vb1(:,1:N),transpose(conjg(Vb1(:,1:N))) )
-    Pb2 = matmul( Vb2(:,1:N),transpose(conjg(Vb2(:,1:N))) )  
-    P   = matmul(Pb1,Pb2) - matmul(Pb2,Pb1)
+    Pb1 = Vb1(:,1:N).mx.transpose(conjg(Vb1(:,1:N)))
+    Pb2 = Vb2(:,1:N).mx.transpose(conjg(Vb2(:,1:N)))
+    P   = (Pb1.mx.Pb2) - (Pb2.mx.Pb1)
+    ! Pb1 = matmul( Vb1(:,1:N),transpose(conjg(Vb1(:,1:N))) )
+    ! Pb2 = matmul( Vb2(:,1:N),transpose(conjg(Vb2(:,1:N))) )  
+    ! P   = matmul(Pb1,Pb2) - matmul(Pb2,Pb1)
     !
     if(to_lower(method_)=='s')then       
        Umb1 = periodic_gauge(Q,-b1)
        Umb2 = periodic_gauge(Q,-b2)
        Vmb1 = dual_state(Q,Umb1,spin)
        Vmb2 = dual_state(Q,Umb2,spin)
-       Pmb1 = matmul(Vmb1(:,1:N),transpose(conjg(Vmb1(:,1:N))) )
-       Pmb2 = matmul(Vmb2(:,1:N),transpose(conjg(Vmb2(:,1:N))) )         
-       P    =  (matmul(Pmb1,Pmb2) - matmul(Pmb2,Pmb1)) - &
-            (matmul(Pb1 ,Pmb2) - matmul(Pmb2,Pb1) ) - &
-            (matmul(Pmb1,Pb2)  - matmul(Pb2 ,Pmb1))
+       Pmb1 = (Vmb1(:,1:N).mx.transpose(conjg(Vmb1(:,1:N))) )
+       Pmb2 = (Vmb2(:,1:N).mx.transpose(conjg(Vmb2(:,1:N))) )         
+       P    =  ((Pmb1.mx.Pmb2) - (Pmb2.mx.Pmb1)) - &
+            ((Pb1.mx.Pmb2) - (Pmb2.mx.Pb1) )    - &
+            ((Pmb1.mx.Pb2)  - (Pb2.mx.Pmb1))
+       ! Pmb1 = matmul(Vmb1(:,1:N),transpose(conjg(Vmb1(:,1:N))) )
+       ! Pmb2 = matmul(Vmb2(:,1:N),transpose(conjg(Vmb2(:,1:N))) )         
+       ! P    =  (matmul(Pmb1,Pmb2) - matmul(Pmb2,Pmb1)) - &
+       !      (matmul(Pb1 ,Pmb2) - matmul(Pmb2,Pb1) )    - &
+       !      (matmul(Pmb1,Pb2)  - matmul(Pb2 ,Pmb1))
        P    = P/4d0
     endif
     !
     !
-    !
+    Chern_Q2 = dimag(matmul(P,Pgs))/pi2*Nlat
     Chern_Q2 = dimag(matmul(P,Pgs))/pi2*Nlat
     !
     Chern_Q4 = reshape_rank2_to_rank4(Chern_Q2,Nso,Nlat)
@@ -637,7 +645,7 @@ contains
        enddo
     enddo
     !
-    if(master)call stop_timer()
+    if(MPImaster)call stop_timer()
     !
   end subroutine pbc_local_spin_chern_marker
 
@@ -793,7 +801,7 @@ contains
        else
           b = mu
        endif
-       if(master)print*,iter,err
+       if(MPImaster)print*,iter,err
        if(abs(err)<eps)return
     enddo
     stop "ERROR chemical_potential: failed after 200 iterations"
@@ -880,20 +888,6 @@ contains
 
 
 
-
-  subroutine t_start()
-    call cpu_time(ti)
-  end subroutine t_start
-
-  subroutine t_stop(msg)
-    character(len=*),optional :: msg
-    call cpu_time(tf)
-    if(present(msg))then
-       if(master)write(*,'(A,1x,"Time = ",f6.3," seconds.")')msg,tf-ti
-    else
-       if(master)write(*,'("Time = ",f6.3," seconds.")')tf-ti
-    endif
-  end subroutine t_stop
 
 
 

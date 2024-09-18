@@ -29,14 +29,9 @@ program anderson_bhz_2d
   real(8),dimension(:),allocatable          :: Tzii,Szii
   complex(8),dimension(:,:,:,:),allocatable :: Gf
   integer                                   :: ilat,iorb,ispin,io
-
-
-  call init_MPI()
-  call init_BLACS()
-  master = get_master_BLACS()
-
-
-  
+  !  
+  call init_parallel()
+  !  
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="inputABHZ.conf")
   call parse_input_variable(Nx,"Nx",inputFILE,default=10)
@@ -60,8 +55,8 @@ program anderson_bhz_2d
   call parse_input_variable(with_mats_gf,"WITH_MATS_GF",inputFILE,default=.false.)
   call parse_input_variable(with_real_gf,"WITH_REAL_GF",inputFILE,default=.false.)
   call parse_input_variable(Nblock,"NBLOCK",inputFILE,default=4)
-  call save_input_file(inputFILE)
-  call print_input()
+  if(MPImaster)call save_input_file(inputFILE)
+  if(MPImaster)call print_input()
   !
 
   !Save variables into DMFT_TOOLS memory pool
@@ -99,17 +94,17 @@ program anderson_bhz_2d
 
 
   !SOLVE THE HOMOGENOUS PROBLEM:  
-  if(master)write(*,*) "Solve homogeneous model with Nk="//str(Nk)
+  if(MPImaster)write(*,*) "Solve homogeneous model with Nk="//str(Nk)
   allocate(Hk(Nso,Nso,Nk))
   call TB_build_model(Hk,hk_model,Nso,[Nx,Ny])
   z2 = hk_to_spin_Chern(Hk,[Nx,Ny],spin=1)
-  if(master)write(*,*)"get spin Chern UP:",z2
+  if(MPImaster)write(*,*)"get spin Chern UP:",z2
   z2 = hk_to_spin_Chern(Hk,[Nx,Ny],spin=2)
-  if(master)write(*,*)"get spin Chern DW:",z2
+  if(MPImaster)write(*,*)"get spin Chern DW:",z2
   z2 = hk_to_spin_Chern(Hk,[Nx,Ny])
-  if(master)write(*,*)"get Z2:",z2
-  if(master)write(*,*)""
-  if(master)write(*,*)""
+  if(MPImaster)write(*,*)"get Z2:",z2
+  if(MPImaster)write(*,*)""
+  if(MPImaster)write(*,*)""
   deallocate(Hk)
 
 
@@ -121,7 +116,7 @@ program anderson_bhz_2d
   !Solve the A_BHZ (non-interacting):
   call solve_Anderson_bhz()
 
-  if(master)then
+  if(MPImaster)then
      call save_array("Ebhz.restart",Ev)
      call save_array("sz_"//str(idum)//".dat",Szii)
      call save_array("tz_"//str(idum)//".dat",Tzii)
@@ -137,12 +132,12 @@ program anderson_bhz_2d
   !Get topological info:
   sp_chern(1) = single_point_spin_chern(spin=1)
   sp_chern(2) = single_point_spin_chern(spin=2)
-  if(master)call save_array("spin_chern.dat",sp_chern)
-  if(master)print*,"spin_Chern UP,DW:",sp_chern
+  if(MPImaster)call save_array("spin_chern.dat",sp_chern)
+  if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
   !
   if(with_lcm)then
      call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
-     if(master)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+     if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
   endif
 
 
@@ -150,30 +145,26 @@ program anderson_bhz_2d
   if(with_mats_gf)then
      allocate(Gf(Nlat,Nso,Nso,Lfreq))
      call get_gf(Gf,'mats')
-     if(master)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=5,itar=.true.)
+     if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=5,itar=.true.)
      deallocate(Gf)
   endif
 
   if(with_real_gf)then
      allocate(Gf(Nlat,Nso,Nso,Lfreq))
      call get_gf(Gf,'real')
-     if(master)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=5,itar=.true.)
+     if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=5,itar=.true.)
      deallocate(Gf)
   endif
 
 
-  call finalize_BLACS()
+  call end_parallel()
 
 
 contains
 
 
   subroutine solve_Anderson_BHZ()
-#ifdef _SCALAPACK
     complex(8),dimension(Nlso,NLso) :: fE
-#else
-    real(8),dimension(Nlso)         :: fE
-#endif
     complex(8),dimension(Nlso,NLso) :: Rho
     integer                         :: io,jo,ilat,iorb,ispin
     !
@@ -183,7 +174,7 @@ contains
     if(.not.allocated(H))allocate(H(Nlso,Nlso))
     if(.not.allocated(Ev))allocate(Ev(Nlso))
     !
-    if(master)call start_timer("Solve Anderson BHZ")
+    if(MPImaster)call start_timer("Solve Anderson BHZ")
     !
     H = Hij(:,:,1)
 #ifdef _SCALAPACK
@@ -193,13 +184,9 @@ contains
 #endif
     !
     !Actual solution:
-#ifdef _SCALAPACK
     fE  = one*diag(fermi(Ev,beta))
-    Rho = ( H.px.fE ).px.conjg(transpose(H))
-#else
-    fE  = fermi(Ev,beta)
-    Rho = matmul(H , matmul(diag(fE), conjg(transpose(H))) )
-#endif
+    Rho = ( H.mx.fE ).mx.conjg(transpose(H))
+    ! Rho = matmul(H , matmul(fE, conjg(transpose(H))) )
     !
     !Get observables:
     do concurrent(ilat=1:Nlat,ispin=1:Nspin,iorb=1:Norb)
@@ -211,7 +198,7 @@ contains
        Tzii(ilat) = 0.5d0*sum(Nii(ilat,:,1)) - 0.5d0*sum(Nii(ilat,:,2)) !N_1  - N_2
     enddo
     !
-    if(master)call stop_timer()
+    if(MPImaster)call stop_timer()
   end subroutine solve_Anderson_BHZ
 
 

@@ -83,47 +83,36 @@ endef
 
 all: FLAG:=${FFLAG} ${FPPSERIAL}
 all: ${OBJS}
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}	
-	@echo "Done"
-	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
+all: compile
 
 
 mpi: FLAG:=${FFLAG} ${FPPMPI}
 mpi: ${OBJS}
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}		
-	@echo "Done"
-	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
+mpi: compile
 
 
 debug: FLAG:=${DFLAG} ${FPPSERIAL}
 debug: ${OBJS}
+debug: compile
+
+
+debug_mpi: FLAG:=${DFLAG} ${FPPMPI}
+debug_mpi: ${OBJS}
+debug_mpi: compile
+
+
+compile:
 	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
+	$(call colorecho,"compiling $(EXE).f90 ", 3)
 	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}		
-	@echo "Done"
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
-
-
-aggressive: FLAG:=${AFLAG} ${FPPSERIAL}
-aggressive: ${OBJS}
 	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
+	$(call colorecho,"compiling mf_$(EXE).f90 ", 3)
+	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}	
+	$(call colorecho,"created mf_$(EXE) in  $(DIREXE)", 1)
 	@echo ""
-	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}		
 	@echo "Done"
-	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
-
+	@echo ""
 
 clean: 
 	@echo "Cleaning:"
