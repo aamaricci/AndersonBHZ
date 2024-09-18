@@ -8,7 +8,7 @@ program mf_anderson_bhz_2d
   real(8),dimension(:),allocatable          :: Ev
   complex(8),dimension(:,:),allocatable     :: H
   real(8),dimension(:,:,:),allocatable      :: Nii
-  real(8),dimension(:),allocatable          :: Tzii,Szii
+  real(8),dimension(:),allocatable          :: Tzii,Szii,N1ii,N2ii
   complex(8),dimension(:,:,:,:),allocatable :: Gf
   integer                                   :: ilat,iorb,ispin,io
   logical                                   :: converged,iexist
@@ -118,13 +118,15 @@ program mf_anderson_bhz_2d
      !call symmetrize_params(params)
      call solve_MF_bhz(iter,params)
      if(MPImaster)then
+        write(*,*)"E(Tz), sd(Tz):",get_mean(Tzii),get_sd(Tzii)
+        write(*,*)"E(Sz), sd(Sz):",get_mean(Szii),get_sd(Szii)
+        write(*,*)"E(N1), sd(N1):",get_mean(N1ii),get_sd(N1ii)
+        write(*,*)"E(N2), sd(N2):",get_mean(N2ii),get_sd(N2ii)
         call save_array("Ebhz.dat",Ev)
-        call save_array("sz_"//str(idum)//".dat",Szii)
         call save_array("tz_"//str(idum)//".dat",Tzii)
-        call save_array("n_l1s1_"//str(idum)//".dat",Nii(:,1,1))
-        call save_array("n_l2s1_"//str(idum)//".dat",Nii(:,1,2))
-        call save_array("n_l2s1_"//str(idum)//".dat",Nii(:,2,1))
-        call save_array("n_l2s2_"//str(idum)//".dat",Nii(:,2,2))
+        call save_array("sz_"//str(idum)//".dat",Szii)
+        call save_array("n1_"//str(idum)//".dat",N1ii)
+        call save_array("n2_"//str(idum)//".dat",N2ii)
      endif
      !
      if(iter>1)params = wmix*params + (1d0-wmix)*params_prev
@@ -189,6 +191,8 @@ contains
     if(.not.allocated(Nii))allocate(Nii(Nlat,Nspin,Norb))
     if(.not.allocated(Szii))allocate(Szii(Nlat))
     if(.not.allocated(Tzii))allocate(Tzii(Nlat))
+    if(.not.allocated(N1ii))allocate(N1ii(Nlat))
+    if(.not.allocated(N2ii))allocate(N2ii(Nlat))
     if(.not.allocated(H))allocate(H(Nlso,Nlso))
     if(.not.allocated(Ev))allocate(Ev(Nlso))
     !
@@ -211,12 +215,13 @@ contains
        Nii(ilat,ispin,iorb) = Rho(io,io)
     enddo
     do ilat=1,Nlat
-       Tzii(ilat) = 0.5d0*sum(Nii(ilat,:,1)) - 0.5d0*sum(Nii(ilat,:,2)) !N_1  - N_2
+       N1ii(ilat) = sum(Nii(ilat,:,1))
+       N2ii(ilat) = sum(Nii(ilat,:,2))
+       Tzii(ilat) = 0.5d0*(N1ii(ilat) - N2ii(ilat))
        Szii(ilat) = 0.5d0*sum(Nii(ilat,1,:)) - 0.5d0*sum(Nii(ilat,2,:)) !N_up - N_dw
     enddo
     a(:,1) = Tzii
     a(:,2) = Szii
-    if(MPImaster)call stop_timer()
   end subroutine solve_MF_bhz
 
 

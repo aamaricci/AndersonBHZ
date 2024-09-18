@@ -381,13 +381,13 @@ contains
     !
     if(MPImaster)call start_timer("obc_local_ChernMarker")
     !
-    P = matmul( U(:,1:Nocc),transpose(conjg(U(:,1:Nocc))) )
+    P = ( U(:,1:Nocc).mx.transpose(conjg(U(:,1:Nocc))) )
     !
     allocate(R(Nlso,2))
     R       = TB_build_Rcoord([Nx,Ny],to_home=.false.)
-    Xcomm_P = matmul(diag(R(:,1)),P) - matmul(P,diag(R(:,1)))
-    Ycomm_P = matmul(diag(R(:,2)),P) - matmul(P,diag(R(:,2)))
-    P       = -4*pi*dimag(matmul(matmul(P,Xcomm_P),Ycomm_P))
+    Xcomm_P = (diag(one*R(:,1)).mx.P) - (P.mx.diag(one*R(:,1)))
+    Ycomm_P = (diag(one*R(:,2)).mx.P) - (P.mx.diag(one*R(:,2)))
+    P       = -4*pi*dimag(((P.mx.Xcomm_P).mx.Ycomm_P))
     !    
     allocate(Q4(Nso,Nso,Nlat,Nlat))
     Q4 = reshape_rank2_to_rank4(P,Nso,Nlat)
@@ -439,18 +439,18 @@ contains
     if(MPImaster)call start_timer("obc_local_spinChernMarker_s"//str(spin))
     !
     allocate(Q(Nlso,Nocc))
-    Q = matmul( U(:,1:Nocc), PSzP ) 
+    Q = ( U(:,1:Nocc).mx. PSzP ) 
     !
     !GS projectors P_-, P_+
     select case(spin)
-    case(1);P = matmul( Q(:,1:N)    ,transpose(conjg(Q(:,1:N))) )    
-    case(2);P = matmul( Q(:,N+1:2*N),transpose(conjg(Q(:,N+1:2*N))) )
+    case(1);P = ( Q(:,1:N)    .mx.transpose(conjg(Q(:,1:N))) )    
+    case(2);P = ( Q(:,N+1:2*N).mx.transpose(conjg(Q(:,N+1:2*N))) )
     end select
     !
     R       = TB_build_Rcoord([Nx,Ny],to_home=.false.)
-    Xcomm_P = matmul(diag(R(:,1)),P) - matmul(P,diag(R(:,1)))
-    Ycomm_P = matmul(diag(R(:,2)),P) - matmul(P,diag(R(:,2)))
-    Q2      = -4*pi*dimag(matmul(matmul(P,Xcomm_P),Ycomm_P))
+    Xcomm_P = (diag(one*R(:,1)).mx.P) - (P.mx.diag(one*R(:,1)))
+    Ycomm_P = (diag(one*R(:,2)).mx.P) - (P.mx.diag(one*R(:,2)))
+    Q2      = -4*pi*dimag(((P.mx.Xcomm_P).mx.Ycomm_P))
     Q4      = reshape_rank2_to_rank4(Q2,Nso,Nlat)
     !
     if(allocated(lcm))deallocate(lcm)
@@ -507,25 +507,25 @@ contains
     Vb1 = dual_state(U,Ub1)
     Vb2 = dual_state(U,Ub2)
     !
-    Pgs = matmul( U(:,1:Nocc),transpose(conjg(U(:,1:Nocc))) )
-    Pb1 = matmul( Vb1(:,1:Nocc),transpose(conjg(Vb1(:,1:Nocc))) )
-    Pb2 = matmul( Vb2(:,1:Nocc),transpose(conjg(Vb2(:,1:Nocc))) )
-    P   = matmul(Pb1,Pb2) - matmul(Pb2,Pb1)
+    Pgs = ( U(:,1:Nocc).mx.transpose(conjg(U(:,1:Nocc))) )
+    Pb1 = ( Vb1(:,1:Nocc).mx.transpose(conjg(Vb1(:,1:Nocc))) )
+    Pb2 = ( Vb2(:,1:Nocc).mx.transpose(conjg(Vb2(:,1:Nocc))) )
+    P   = (Pb1.mx.Pb2) - (Pb2.mx.Pb1)
     !
     if(to_lower(method_)=='a')then
        Umb1 = periodic_gauge(U,-b1)
        Umb2 = periodic_gauge(U,-b2)
        Vmb1 = dual_state(U,Umb1)
        Vmb2 = dual_state(U,Umb2)
-       Pmb1 = matmul( Vmb1(:,1:Nocc),transpose(conjg(Vmb1(:,1:Nocc))) )
-       Pmb2 = matmul( Vmb2(:,1:Nocc),transpose(conjg(Vmb2(:,1:Nocc))) )
-       P    =  (matmul(Pmb1,Pmb2) - matmul(Pmb2,Pmb1)) - &
-            (matmul(Pb1 ,Pmb2) - matmul(Pmb2,Pb1) ) - &
-            (matmul(Pmb1,Pb2)  - matmul(Pb2 ,Pmb1))
+       Pmb1 = ( Vmb1(:,1:Nocc).mx.transpose(conjg(Vmb1(:,1:Nocc))) )
+       Pmb2 = ( Vmb2(:,1:Nocc).mx.transpose(conjg(Vmb2(:,1:Nocc))) )
+       P    =  ((Pmb1.mx.Pmb2) - (Pmb2.mx.Pmb1)) - &
+            ((Pb1 .mx.Pmb2) - (Pmb2.mx.Pb1) ) - &
+            ((Pmb1.mx.Pb2)  - (Pb2 .mx.Pmb1))
        P    = P/4d0
     endif
     !
-    Chern_Q2 = dimag(matmul(P,Pgs))/pi2*Nlat
+    Chern_Q2 = dimag((P.mx.Pgs))/pi2*Nlat
     !
     Chern_Q4 = reshape_rank2_to_rank4(Chern_Q2,Nso,Nlat)
     !
@@ -590,14 +590,12 @@ contains
     if(MPImaster)call start_timer("pbc_local_spinChernMarker_s"//str(spin))
     !
     allocate(Q(Nlso,Nocc))!;Q=zero
-    Q = matmul( U(:,1:Nocc), PSzP ) 
+    Q = ( U(:,1:Nocc).mx. PSzP ) 
     !
     !GS projectors Pgs_-, Pgs_+
     select case(spin)
     case(1);Pgs = Q(:,1:N) .mx. transpose(conjg(Q(:,1:N)))
     case(2);Pgs = Q(:,N+1:).mx. transpose(conjg(Q(:,N+1:)))
-       ! case(1);Pgs = matmul(Q(:,1:N),transpose(conjg(Q(:,1:N))) )
-       ! case(2);Pgs = matmul(Q(:,N+1:),transpose(conjg(Q(:,N+1:))) )
     end select
     !
     Ub1 = periodic_gauge(Q,b1)
@@ -607,9 +605,6 @@ contains
     Pb1 = Vb1(:,1:N).mx.transpose(conjg(Vb1(:,1:N)))
     Pb2 = Vb2(:,1:N).mx.transpose(conjg(Vb2(:,1:N)))
     P   = (Pb1.mx.Pb2) - (Pb2.mx.Pb1)
-    ! Pb1 = matmul( Vb1(:,1:N),transpose(conjg(Vb1(:,1:N))) )
-    ! Pb2 = matmul( Vb2(:,1:N),transpose(conjg(Vb2(:,1:N))) )  
-    ! P   = matmul(Pb1,Pb2) - matmul(Pb2,Pb1)
     !
     if(to_lower(method_)=='s')then       
        Umb1 = periodic_gauge(Q,-b1)
@@ -621,17 +616,11 @@ contains
        P    =  ((Pmb1.mx.Pmb2) - (Pmb2.mx.Pmb1)) - &
             ((Pb1.mx.Pmb2) - (Pmb2.mx.Pb1) )    - &
             ((Pmb1.mx.Pb2)  - (Pb2.mx.Pmb1))
-       ! Pmb1 = matmul(Vmb1(:,1:N),transpose(conjg(Vmb1(:,1:N))) )
-       ! Pmb2 = matmul(Vmb2(:,1:N),transpose(conjg(Vmb2(:,1:N))) )         
-       ! P    =  (matmul(Pmb1,Pmb2) - matmul(Pmb2,Pmb1)) - &
-       !      (matmul(Pb1 ,Pmb2) - matmul(Pmb2,Pb1) )    - &
-       !      (matmul(Pmb1,Pb2)  - matmul(Pb2 ,Pmb1))
        P    = P/4d0
     endif
     !
     !
-    Chern_Q2 = dimag(matmul(P,Pgs))/pi2*Nlat
-    Chern_Q2 = dimag(matmul(P,Pgs))/pi2*Nlat
+    Chern_Q2 = dimag((P.mx.Pgs))/pi2*Nlat
     !
     Chern_Q4 = reshape_rank2_to_rank4(Chern_Q2,Nso,Nlat)
     !
@@ -715,17 +704,17 @@ contains
     a = 0    ;if(spin_==2)a=N
     !
     allocate(S(N,N))
-    S = matmul( transpose(conjg(U(:,a+1:a+N))), Ub(:,a+1:a+N) )
+    S = ( transpose(conjg(U(:,a+1:a+N))).mx. Ub(:,a+1:a+N) )
     !
-! #ifdef _SCALAPACK
-!     call p_inv(S,Nblock)
-! #else
+#ifdef _SCALAPACK
+    call p_inv(S,Nblock)
+#else
     call inv(S)
-! #endif
+#endif
     !
     if(allocated(Vb))deallocate(Vb)
     allocate(Vb(Nlso,N))
-    Vb = matmul( Ub(:,a+1:a+N), S)
+    Vb = ( Ub(:,a+1:a+N).mx.S)
     !
   end function Dual_State
 
@@ -759,7 +748,8 @@ contains
     if(allocated(Epsp))deallocate(Epsp)
     allocate(PSzP(Nocc,Nocc))
     allocate(Epsp(Nocc))
-    PSzP = matmul( conjg(transpose(U(:,1:Nocc))), matmul(Sz,U(:,1:Nocc)) )
+    !PSzP = matmul( conjg(transpose(U(:,1:Nocc))), matmul(Sz,U(:,1:Nocc)) )
+    PSzP = conjg(transpose(U(:,1:Nocc))).mx. (Sz.mx.U(:,1:Nocc))
 #ifdef _SCALAPACK
     call p_eigh(PSzP,Epsp,Nblock)
 #else
@@ -769,7 +759,8 @@ contains
   !
   function PSzP_Matrix() result(PSzP)
     complex(8),dimension(:,:),allocatable :: PSzP
-    PSzP = matmul( conjg(transpose(U(:,1:Nocc))), matmul(Sz,U(:,1:Nocc)) )
+    PSzP = ( conjg(transpose(U(:,1:Nocc))).mx. (Sz.mx.U(:,1:Nocc)) )
+    ! PSzP = matmul( conjg(transpose(U(:,1:Nocc))), matmul(Sz,U(:,1:Nocc)) )
   end function PSzP_Matrix
 
 

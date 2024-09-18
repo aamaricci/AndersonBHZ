@@ -117,7 +117,7 @@ program anderson_bhz_2d
   call solve_Anderson_bhz()
 
   if(MPImaster)then
-     call save_array("Ebhz.restart",Ev)
+     call save_array("Ebhz.dat",Ev)
      call save_array("sz_"//str(idum)//".dat",Szii)
      call save_array("tz_"//str(idum)//".dat",Tzii)
      call save_array("n_l1s1_"//str(idum)//".dat",Nii(:,1,1))
