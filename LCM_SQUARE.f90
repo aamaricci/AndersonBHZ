@@ -734,6 +734,7 @@ contains
     if(allocated(E))deallocate(E)
     allocate(U, source=Evec)
     allocate(E, source=Evals)
+    call save_array("Eh.dat",E)
   end subroutine push_Bloch
 
 
@@ -755,6 +756,8 @@ contains
 #else
     call eigh(PSzP,Epsp)
 #endif
+    call save_array("Epszp.dat",Epsp)
+    !
   end subroutine eigh_PSzP
   !
   function PSzP_Matrix() result(PSzP)

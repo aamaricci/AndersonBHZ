@@ -32,13 +32,12 @@ MODULE COMMON
   logical                                   :: bhz_pbc
   real(8)                                   :: mh
   real(8)                                   :: lambda
-  real(8)                                   :: xmu
-  real(8)                                   :: beta
   real(8)                                   :: wmix
   integer                                   :: Lfreq
   real(8)                                   :: wmin,wmax
-  real(8)                                   :: eps
-  real(8)                                   :: sb_field
+  real(8)                                   :: temp
+  real(8)                                   :: mu,ieta
+  real(8)                                   :: p_field
   real(8)                                   :: it_error
   integer                                   :: MaxIter
   logical                                   :: with_lcm
@@ -68,6 +67,16 @@ MODULE COMMON
 
 
 contains
+
+
+  !SETUP THE GAMMA MATRICES:
+  subroutine setup_GammaMatrices()
+    gamma0 = kron( pauli_sigma_0, pauli_tau_0)
+    gammaX = kron( pauli_sigma_z, pauli_tau_x)
+    gammaY = kron( pauli_sigma_0,-pauli_tau_y)
+    gamma5 = kron( pauli_sigma_0, pauli_tau_z)
+    gammaS = kron( pauli_sigma_z, pauli_tau_0)
+  end subroutine setup_GammaMatrices
 
 
 
@@ -250,7 +259,7 @@ contains
     wfreq = build_frequency_array(axis)
     !
     !Allocate and setup the Matsubara freq.
-    forall(i=1:Lfreq)csi(:,i)=one/(wfreq(i)+xmu-E(:))
+    forall(i=1:Lfreq)csi(:,i)=one/(wfreq(i)+mu-E(:))
     !
     Gloc = zero
     Gtmp = zero
@@ -282,9 +291,9 @@ contains
     case default;
        stop "build_frequency_array ERROR: axis undefined. axis=[matsubara,realaxis]"
     case("matsubara","mats","m")
-       wfreq = dcmplx(0d0,pi/beta*(2*arange(1,Lfreq)-1))
+       wfreq = dcmplx(0d0,pi*temp*(2*arange(1,Lfreq)-1))
     case("realaxis","real","r")
-       wfreq = dcmplx(linspace(wmin,wmax,Lfreq),eps)
+       wfreq = dcmplx(linspace(wmin,wmax,Lfreq),ieta)
     end select
     return
   end function build_frequency_array

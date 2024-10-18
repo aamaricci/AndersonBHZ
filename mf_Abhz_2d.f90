@@ -14,7 +14,8 @@ program mf_anderson_bhz_2d
   logical                                   :: converged,iexist
   integer                                   :: Iter,Nsuccess=2
   real(8),dimension(:,:),allocatable        :: params,params_prev
-  !
+
+
   call init_parallel()
   !  
   !Read input:
@@ -28,14 +29,14 @@ program mf_anderson_bhz_2d
   call parse_input_variable(lambda,"LAMBDA",inputFILE,default=0.3d0)
   call parse_input_variable(uloc,"ULOC",inputFILE,default=0.5d0)
   call parse_input_variable(Jh,"JH",inputFILE,default=0.1d0)
-  call parse_input_variable(beta,"BETA",inputFILE,default=1000.d0)
+  call parse_input_variable(mu,"MU",inputFILE,default=0.d0)
+  call parse_input_variable(temp,"temp",inputFILE,default=0.0001d0)
   call parse_input_variable(wmix,"WMIX",inputFILE,default=0.5d0)
   call parse_input_variable(Lfreq,"Lfreq",inputFILE,default=1024)
   call parse_input_variable(wmin,"WMIN",inputFILE,default=-5d0)
-  call parse_input_variable(wmax,"WMAX",inputFILE,default= 5d0)
-  call parse_input_variable(eps,"EPS",inputFILE,default=4.d-2)
-  call parse_input_variable(xmu,"XMU",inputFILE,default=0.d0)
-  call parse_input_variable(sb_field,"SB_FIELD",inputFILE,default=0.01d0)
+  call parse_input_variable(wmax,"wmax",inputFILE,default= 5d0)
+  call parse_input_variable(ieta,"IETA",inputFILE,default=4.d-2)
+  call parse_input_variable(p_field,"P_FIELD",inputFILE,default=0.01d0)
   call parse_input_variable(it_error,"IT_ERROR",inputFILE,default=1d-5)
   call parse_input_variable(maxiter,"MAXITER",inputFILE,default=100)
   call parse_input_variable(with_lcm,"WITH_lcm",inputFILE,default=.false.)
@@ -47,13 +48,13 @@ program mf_anderson_bhz_2d
   !
   !
   !Save variables into DMFT_TOOLS memory pool
-  call add_ctrl_var(beta,"BETA")
+  call add_ctrl_var(1d0/temp,"BETA")
   call add_ctrl_var(Norb,"NORB")
   call add_ctrl_var(Nspin,"Nspin")
-  call add_ctrl_var(xmu,"xmu")
+  call add_ctrl_var(mu,"xmu")
   call add_ctrl_var(wmin,"wini")
   call add_ctrl_var(wmax,"wfin")
-  call add_ctrl_var(eps,"eps")
+  call add_ctrl_var(ieta,"eps")
 
 
   !SETUP COMMON DIMENSION
@@ -66,11 +67,7 @@ program mf_anderson_bhz_2d
   Nocc = Nlso/2
 
   !SETUP THE GAMMA MATRICES:
-  gamma0 = kron( pauli_sigma_0, pauli_tau_0)
-  gammaX = kron( pauli_sigma_z, pauli_tau_x)
-  gammaY = kron( pauli_sigma_0,-pauli_tau_y)
-  gamma5 = kron( pauli_sigma_0, pauli_tau_z)
-  gammaS = kron( pauli_sigma_z, pauli_tau_0)
+  call setup_GammaMatrices()
 
 
   !Set the basis vectors square lattice
@@ -100,12 +97,12 @@ program mf_anderson_bhz_2d
   !>Read OR INIT MF params
   allocate(params(Nlat,2),params_prev(Nlat,2))
   do ilat=1,Nlat
-     params(ilat,:)= [sb_field,sb_field]   ![Tz,Sz]
+     params(ilat,:)= [p_field,p_field]   ![Tz,Sz]
   enddo
   inquire(file="params.restart",exist=iexist)
   if(iexist)then
      call read_array("params.restart",params)     
-     params(:,2)=params(:,2)+sb_field
+     params(:,2)=params(:,2)+p_field
   endif
   !
   !> Mean-Field cycle with linear mixing
@@ -205,7 +202,7 @@ contains
 #endif
     !
     !Actual solution:
-    fE  = one*diag(fermi(Ev,beta))
+    fE  = one*diag(fermi(Ev,1d0/temp))
     Rho = ( H.mx.fE ).mx.conjg(transpose(H))
     ! Rho = matmul(H , matmul(fE, conjg(transpose(H))) )
     !

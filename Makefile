@@ -13,7 +13,7 @@ DIREXE=$(HOME)/.bin
 #$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
 #$ LIB_SS: specify slave spins library if any
 #$ LIB_TB: specify custom tight-binding library if any
-#LIB_ED=edipack2
+LIB_ED=edipack2
 #LIB_SS=slave_spins
 #LIB_TB=honeytools
 
@@ -108,7 +108,11 @@ compile:
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 	@echo ""
 	$(call colorecho,"compiling mf_$(EXE).f90 ", 3)
-	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}	
+	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(call colorecho,"created mf_$(EXE) in  $(DIREXE)", 1)
+	@echo ""
+	$(call colorecho,"compiling dmft_$(EXE).f90 ", 3)
+	$(FC) ${OBJS} $(FLAG) dmft_$(EXE).f90 -o $(DIREXE)/dmft_$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	$(call colorecho,"created mf_$(EXE) in  $(DIREXE)", 1)
 	@echo ""
 	@echo "Done"
