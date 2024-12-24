@@ -62,7 +62,7 @@ MODULE COMMON
   logical                                   :: MpiMaster=.true.
   integer                                   :: MpiRank=0
   integer                                   :: MpiSize=1
-
+  integer                                   :: Mpi_Ierr
 
 
 
@@ -262,19 +262,16 @@ contains
     forall(i=1:Lfreq)csi(:,i)=one/(wfreq(i)+mu-E(:))
     !
     Gloc = zero
-    Gtmp = zero
     if(MPImaster)call start_timer
     do i=1+MPIrank,Lfreq,MPIsize
        do concurrent(ilat=1:Nlat,io=1:Nso,jo=1:Nso)
           is = io + (ilat-1)*Nso
           js = jo + (ilat-1)*Nso
-          Gtmp(ilat,io,jo,i) = sum(U(is,:)*conjg(U(js,:))*csi(:,i))!can use matmul
+          Gloc(ilat,io,jo,i) = sum(U(is,:)*conjg(U(js,:))*csi(:,i))!can use matmul
        enddo
     enddo
 #ifdef _SCALAPACK
-    call AllReduce_MPI(MPI_COMM_WORLD,Gtmp,Gloc)
-#else
-    Gloc = Gtmp
+    call MPI_AllReduce(MPI_IN_PLACE,Gloc,size(Gloc),MPI_Double_Complex,MPI_Sum,MPI_COMM_WORLD,mpi_ierr)
 #endif
     if(MPImaster)call stop_timer
   end subroutine get_gf
@@ -372,20 +369,24 @@ contains
 
 
   subroutine init_parallel
+#ifdef _SCALAPACK
     call init_MPI()
     call init_BLACS()
     MPImaster = get_master_BLACS()
     MPIrank   = get_rank_BLACS()
     MPISize   = get_size_BLACS()
+    call StartMsg_MPI()
+#endif
   end subroutine init_parallel
 
 
   subroutine end_parallel
-    ! call init_MPI()
+#ifdef _SCALAPACK
     call finalize_BLACS()
     MPImaster = .false.
     MPIrank   = 0
     MPISize   = 1
+#endif
   end subroutine end_parallel
 
 END MODULE COMMON

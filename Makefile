@@ -1,21 +1,10 @@
-#TO BE CHANGED BY USER:
-#$ DRIVER NAME without .f90 extension
-#$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
-#$ PLATFORM: supported platform are intel, gnu
-#$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
-
 EXE=Abhz_2d
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
 
 # LIBRARIES TO BE INCLUDED
-#$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
-#$ LIB_SS: specify slave spins library if any
-#$ LIB_TB: specify custom tight-binding library if any
 LIB_ED=edipack2
-#LIB_SS=slave_spins
-#LIB_TB=honeytools
 
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
@@ -26,15 +15,6 @@ GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
 GLOB_LIB+=$(shell pkg-config --libs ${LIB_ED})
 endif
 
-ifdef LIB_SS
-GLOB_INC+=$(shell pkg-config --cflags ${LIB_SS})
-GLOB_LIB+=$(shell pkg-config --libs ${LIB_SS})
-endif
-
-ifdef LIB_TB
-GLOB_INC+=$(shell pkg-config --cflags ${LIB_TB})
-GLOB_LIB+=$(shell pkg-config --libs ${LIB_TB})
-endif
 
 GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)
 GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)
@@ -49,7 +29,8 @@ FPPMPI =-fpp -D_
 endif
 
 ifeq ($(PLAT),gnu)
-FFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
+FFLAG = -ffree-line-length-none -w  -fallow-argument-mismatch -O3   -funroll-loops
+OFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
 DFLAG = -w -O0 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
 AFLAG = -w -O0 -p -g  -fbacktrace -fwhole-file -fcheck=all -fbounds-check -fsanitize=address -fdebug-aux-vars -Wall -Waliasing -Wsurprising -Wampersand -Warray-bounds -Wc-binding-type -Wcharacter-truncation -Wconversion -Wdo-subscript -Wfunction-elimination -Wimplicit-interface -Wimplicit-procedure -Wintrinsic-shadow -Wintrinsics-std -Wno-align-commons -Wno-overwrite-recursive -Wno-tabs -Wreal-q-constant -Wunderflow -Wunused-parameter -Wrealloc-lhs -Wrealloc-lhs-all -Wfrontend-loop-interchange -Wtarget-lifetime
 FPPSERIAL= -cpp -D_
@@ -81,47 +62,44 @@ endef
 
 
 
-all: FLAG:=${FFLAG} ${FPPSERIAL}
+all: FLAG:=${FFLAG} ${FPPMPI}
 all: ${OBJS}
 all: compile
 
 
-mpi: FLAG:=${FFLAG} ${FPPMPI}
-mpi: ${OBJS}
-mpi: compile
-
-
-debug: FLAG:=${DFLAG} ${FPPSERIAL}
+debug: FLAG:=${DFLAG} ${FPPMPI}
 debug: ${OBJS}
 debug: compile
 
 
-debug_mpi: FLAG:=${DFLAG} ${FPPMPI}
-debug_mpi: ${OBJS}
-debug_mpi: compile
-
-
-compile:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 3)
-	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
-	@echo ""
-	$(call colorecho,"compiling mf_$(EXE).f90 ", 3)
-	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(call colorecho,"created mf_$(EXE) in  $(DIREXE)", 1)
-	@echo ""
-	$(call colorecho,"compiling dmft_$(EXE).f90 ", 3)
-	$(FC) ${OBJS} $(FLAG) dmft_$(EXE).f90 -o $(DIREXE)/dmft_$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(call colorecho,"created mf_$(EXE) in  $(DIREXE)", 1)
+compile: tb mf dmft
 	@echo ""
 	@echo "Done"
 	@echo ""
 
+tb:
+	@echo ""
+	$(call colorecho,"compiling $(EXE).f90 ", 3)
+	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
+
+mf:
+	@echo ""
+	$(call colorecho,"compiling mf_$(EXE).f90 ", 3)
+	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(call colorecho,"created mf_$(EXE) in  $(DIREXE)", 1)
+
+dmft:
+	@echo ""
+	$(call colorecho,"compiling dmft_$(EXE).f90 ", 3)
+	$(FC) ${OBJS} $(FLAG) dmft_$(EXE).f90 -o $(DIREXE)/dmft_$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(call colorecho,"created dmft_$(EXE) in  $(DIREXE)", 1)
+
+
 clean: 
 	@echo "Cleaning:"
 	@rm -f *.mod *.o *~
-	@rm -fv  $(DIREXE)/$(EXE) $(DIREXE)/mf_$(EXE)
+	@rm -fv  $(DIREXE)/$(EXE) $(DIREXE)/mf_$(EXE) $(DIREXE)/dmft_$(EXE)
 
 .f90.o:	
 	$(FC) $(FLAG) -c $< ${GLOB_INC}

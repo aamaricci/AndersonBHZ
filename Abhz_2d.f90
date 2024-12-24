@@ -17,21 +17,20 @@
 program anderson_bhz_2d
   USE COMMON
   USE LCM_SQUARE
-
   implicit none
-
+  
   integer,parameter                         :: Norb=2,Nspin=2
-  real(8)                                   :: z2,sp_chern(2)
+  real(8)                                   :: z2,sp_chern(2),bT
   !Solution
   real(8),dimension(:),allocatable          :: Ev
   complex(8),dimension(:,:),allocatable     :: H
   real(8),dimension(:,:,:),allocatable      :: Nii
   real(8),dimension(:),allocatable          :: Tzii,Szii
   complex(8),dimension(:,:,:,:),allocatable :: Gf
-  integer                                   :: ilat,iorb,ispin,io
+  integer                                   :: ilat,iorb,ispin,io,i
 
 
-  call init_parallel()
+  call init_parallel()  
   !  
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="inputABHZ.conf")
@@ -61,7 +60,8 @@ program anderson_bhz_2d
   !
 
   !Save variables into DMFT_TOOLS memory pool
-  call add_ctrl_var(1d0/temp,"BETA")
+  bT = 1d0/temp
+  call add_ctrl_var(bT,"BETA")
   call add_ctrl_var(Norb,"NORB")
   call add_ctrl_var(Nspin,"Nspin")
   call add_ctrl_var(mu,"xmu")

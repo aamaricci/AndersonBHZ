@@ -128,17 +128,12 @@ program ed_bhz_2d_edge
      !
      call ed_solve(Bath,mpi_lanc=.false.)
      call ed_get_sigma(self,Nlat,'m')
-     !     
+     !
      ! compute the local gf:
      call dmft_get_gloc(Hij,gloc,self,axis='m')
      !
      ! compute the Weiss field (only the Nineq ones)
-     select case(to_lower(cg_scheme))
-     case default;!Weiss
-        call dmft_self_consistency(gloc,self,Weiss)
-     case ("delta")
-        call dmft_self_consistency(gloc,self,Weiss,Hloc)
-     end select
+     call dmft_self_consistency(gloc,self,Weiss)
      !
      ! fit baths and mix result with old baths
      call ed_chi2_fitgf(Weiss,Bath,ispin=1)
@@ -161,15 +156,14 @@ program ed_bhz_2d_edge
      call end_loop
   enddo
 
+  !Reduce clutter
+  call reduce_clutter_dmft
 
+  !Save Sigma Matsubara
   if(MPImaster)call save_array("Smats",self)
 
-  if(allocated(self))deallocate(self);allocate(self(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
 
-  call ed_get_sigma(self,Nlat,'r')
-  if(MPImaster)call save_array("Sreal",self)
-
-
+  !Push Sigma to topological Hamiltonian
   call push_Htop(Self)
 
 
@@ -179,27 +173,41 @@ program ed_bhz_2d_edge
   if(MPImaster)call save_array("spin_chern.dat",sp_chern)
   if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
   !
+  !Get LCM: 
   if(with_lcm)then
      call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
      if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
   endif
 
+  !Get local Gf matsubara
   if(with_mats_gf)then
      call write_gf(Gloc,"Gloc_"//str(idum),'mats',iprint=5,itar=.true.)
   endif
 
+  if(with_kinetic)call dmft_kinetic_energy(Hij,self)
+
+  !S --> Sigma(w) real-axis:
+  if(allocated(self))deallocate(self)
+  allocate(self(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
+  call ed_get_sigma(self,Nlat,'r')
+
+  !Save Sigma Real-axis
+  if(MPImaster)call save_array("Sreal",self)
+
+  !Get local Gf real-axis  
   if(with_real_gf)then
-     if(allocated(gloc))deallocate(gloc);allocate(gloc(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
+     if(allocated(gloc))deallocate(gloc)
+     allocate(gloc(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
      call dmft_get_gloc(Hij,gloc,self,axis='r')
      call write_gf(gloc,"Gloc_"//str(idum),'real',iprint=5,itar=.true.)
   endif
 
-  if(with_kinetic)call dmft_kinetic_energy(Hij,self)
+
 
   call finalize_MPI()
 
 
-
+  
 contains
 
 
@@ -215,17 +223,17 @@ contains
     S0 = dreal(reshape_5to2_array(Smats(:,:,:,:,:,1)))
     H  = Hij(:,:,1) + one*S0
     !
-    !     if(with_z)then
-    !        do ilat=1,Nlat
-    !           Zfoo(ilat,:,:) = select_block(ilat,S0)
-    !           do io=1,Nso
-    !              i = io + (ilat-1)*Nso
-    !              Z(i,i)  = 1.d0/( 1.d0 + abs( dimag(Zfoo(ilat,io,io))/(pi/beta) ))
-    !           enddo
-    !        enddo
-    !        H = matmul(sqrt(Z),matmul(H,Z))
-    !     endif
-    !     !
+    if(with_z)then
+       do ilat=1,Nlat
+          Zfoo(ilat,:,:) = select_block(ilat,S0)
+          do io=1,Nso
+             i = io + (ilat-1)*Nso
+             Z(i,i)  = 1.d0/( 1.d0 + abs( dimag(Zfoo(ilat,io,io))/(pi/beta) ))
+          enddo
+       enddo
+       H = matmul(sqrt(Z),matmul(H,Z))
+    endif
+    !
 #ifdef _SCALAPACK
     call p_eigh(H,Ev,Nblock)
 #else
@@ -302,4 +310,31 @@ contains
     enddo
   end function reshape_2to5_gf
 
-end program ed_bhz_2d_edge
+
+
+
+  subroutine reduce_clutter_dmft
+    if(MpiMaster)then
+       call file_targz(tarball="tar_impSigma_iw",pattern="impSigma_*iw*")
+       call file_targz(tarball="tar_impSigma_realw",pattern="impSigma_*realw*")
+       call file_targz(tarball="tar_impG_iw",pattern="impG_*iw*")
+       call file_targz(tarball="tar_impG_realw",pattern="impG_*realw*")
+       call file_targz(tarball="tar_impG0_iw",pattern="impG0_*iw*")
+       call file_targz(tarball="tar_impG0_realw",pattern="impG0_*realw*")
+       call file_targz(tarball="tar_N2_correlation",pattern="N2_*.ed")
+       call file_targz(tarball="tar_Sz2_correlation",pattern="Sz2_*.ed")
+       call file_targz(tarball="tar_N2_correlation",pattern="N2_*.ed")
+       call file_targz(tarball="tar_Z_imp",pattern="Z_*.ed")
+       call file_targz(tarball="tar_Sig_imp",pattern="Sig_*.ed")
+       call file_targz(tarball="tar_RDM_imp",pattern="reduced_density_matrix_*.ed")
+       call file_targz(tarball="tar_energy_imp",pattern="energy_*.ed")
+       call file_targz(tarball="tar_fit_weiss",pattern="fit_weiss*")
+       call file_targz(tarball="tar_eigenvalues_list",pattern="eigenvalues_list*")
+       call file_targz(tarball="tar_state_list",pattern="state_list*")
+       call file_targz(tarball="tar_chi2fit",pattern="chi2fit_results*")       
+    endif
+  end subroutine reduce_clutter_dmft
+
+
+
+end program
