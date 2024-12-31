@@ -316,8 +316,6 @@ contains
     !
     if(.not.allocated(PSzP))call eigh_PSzP()
     !
-    call check_Pgap(N,"single_point_spin_chern")
-    !
     if(MPImaster)call start_timer("single_point_spinChern_s"//str(spin))
     !
     !|q_i0> = sum_m=1,Nocc q_i(m)|u_m0>
@@ -423,7 +421,6 @@ contains
     real(8),dimension(Nlso,2)                  :: R
     complex(8),dimension(Nlso,Nlso)            :: Q2
     real(8),dimension(Nso,Nso,Nlat,Nlat)       :: Q4
-    real(8)                                    :: Egap,Pgap,Ep,Em
     integer                                    :: i,ix,iy,ilat,m,N
     if(spin<1.OR.spin>2)stop "OBC_local_spin_chern_marker error: spin < 1 OR spin > 2"
     !
@@ -433,8 +430,6 @@ contains
     N = int(Nocc/2)
     !
     if(.not.allocated(PSzP))call eigh_PSzP()
-    !
-    call check_Pgap(N,"OBC_local_spin_chern_marker")
     !
     if(MPImaster)call start_timer("obc_local_spinChernMarker_s"//str(spin))
     !
@@ -480,7 +475,6 @@ contains
   ! <https://arxiv.org/abs/2404.04598>`
   !+------------------------------------------------------------------+
   subroutine pbc_local_chern_marker(lcm,method)
-    ! complex(8),dimension(Nlso,Nlso),intent(in) :: U
     real(8),dimension(:,:),allocatable         :: lcm
     character(len=*),optional                  :: method
     !
@@ -550,18 +544,13 @@ contains
   ! <https://arxiv.org/abs/2404.04598>`
   !+------------------------------------------------------------------+
   subroutine pbc_local_spin_chern_marker(spin,lcm,method)
-    ! complex(8),dimension(Nlso,Nlso),intent(in) :: U
-    ! real(8),dimension(Nlso),intent(in)         :: E
-    ! complex(8),dimension(Nlso,Nlso),intent(in) :: Sz
     integer                                    :: spin
     real(8),dimension(:,:),allocatable         :: lcm
     character(len=*),optional                  :: method
     !
     character(len=1)                           :: method_
-    ! real(8),dimension(:),allocatable           :: Epsp
-    real(8)                                    :: Egap,Pgap,Ep,Em
     real(8),dimension(2)                       :: b1,b2
-    complex(8),dimension(:,:),allocatable      :: Q!,PSzP
+    complex(8),dimension(:,:),allocatable      :: Q
     complex(8),dimension(:,:),allocatable      :: Ub1,Ub2,Umb1,Umb2
     complex(8),dimension(:,:),allocatable      :: Vb1,Vb2,Vmb1,Vmb2
     complex(8),dimension(Nlso,Nlso)            :: Pb1,Pb2,Pmb1,Pmb2
@@ -583,8 +572,6 @@ contains
     call TB_get_bk(b1,b2)
     !    
     if(.not.allocated(PSzP))call eigh_PSzP()
-    !
-    call check_Pgap(N,"pbc_local_spinChernMarker")
     !
     !
     if(MPImaster)call start_timer("pbc_local_spinChernMarker_s"//str(spin))
@@ -703,11 +690,15 @@ contains
     N = Nocc ;if(spin_>0)N=int(Nocc/2d0)
     a = 0    ;if(spin_==2)a=N
     !
-    allocate(S(N,N))
+    allocate(S(N,N));S=zero
     S = ( transpose(conjg(U(:,a+1:a+N))).mx. Ub(:,a+1:a+N) )
     !
 #ifdef _SCALAPACK
-    call p_inv(S,Nblock)
+    if(MpiSize==1)then
+       call inv(S)
+    else
+       call p_inv(S,Nblock)
+    endif
 #else
     call inv(S)
 #endif
@@ -735,6 +726,7 @@ contains
     allocate(U, source=Evec)
     allocate(E, source=Evals)
     if(MPImaster)call save_array("Eh.dat",E)
+    if(MPImaster)call check_Egap("push_Bloch")
   end subroutine push_Bloch
 
 
@@ -749,21 +741,24 @@ contains
     if(allocated(Epsp))deallocate(Epsp)
     allocate(PSzP(Nocc,Nocc))
     allocate(Epsp(Nocc))
-    !PSzP = matmul( conjg(transpose(U(:,1:Nocc))), matmul(Sz,U(:,1:Nocc)) )
     PSzP = conjg(transpose(U(:,1:Nocc))).mx. (Sz.mx.U(:,1:Nocc))
 #ifdef _SCALAPACK
-    call p_eigh(PSzP,Epsp,Nblock)
+    if(MPIsize==1)then
+       call eigh(PSzP,Epsp)
+    else       
+       call p_eigh(PSzP,Epsp,Nblock)
+    endif
 #else
     call eigh(PSzP,Epsp)
 #endif
     if(MPImaster)call save_array("Epszp.dat",Epsp)
+    if(MPImaster)call check_Pgap("eigh_PSzP")
     !
   end subroutine eigh_PSzP
   !
   function PSzP_Matrix() result(PSzP)
     complex(8),dimension(:,:),allocatable :: PSzP
     PSzP = ( conjg(transpose(U(:,1:Nocc))).mx. (Sz.mx.U(:,1:Nocc)) )
-    ! PSzP = matmul( conjg(transpose(U(:,1:Nocc))), matmul(Sz,U(:,1:Nocc)) )
   end function PSzP_Matrix
 
 
