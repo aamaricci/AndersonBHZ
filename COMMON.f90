@@ -370,12 +370,10 @@ contains
 
   subroutine init_parallel
 #ifdef _SCALAPACK
-    call init_MPI()
-    call init_BLACS()
+    call init_BLACS()           !includes init_MPI
     MPImaster = get_master_BLACS()
     MPIrank   = get_rank_BLACS()
     MPISize   = get_size_BLACS()
-    call StartMsg_MPI()
 #endif
   end subroutine init_parallel
 

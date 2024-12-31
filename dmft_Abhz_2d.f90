@@ -213,15 +213,15 @@ contains
 
   subroutine push_Htop(Smats) 
     complex(8),dimension(Nlat,Nspin,Nspin,Norb,Norb,Lmats) :: Smats
-    real(8),dimension(Nlso,Nlso)       :: S0
+    complex(8),dimension(Nlso,Nlso)                        :: S0
     real(8),dimension(Nlso,Nlso)                           :: Z
     complex(8),dimension(Nlat,Nso,Nso)                     :: Zfoo
     real(8),dimension(Nlso)                                :: Ev
     complex(8),dimension(Nlso,Nlso)                        :: H
     integer                                                :: ilat,io,i
     !
-    S0 = dreal(reshape_5to2_array(Smats(:,:,:,:,:,1)))
-    H  = Hij(:,:,1) + one*S0
+    S0 = reshape_5to2_array(Smats(:,:,:,:,:,1))
+    H  = Hij(:,:,1) + one*dreal(S0)
     !
     if(with_z)then
        do ilat=1,Nlat
