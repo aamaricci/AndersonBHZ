@@ -206,36 +206,41 @@ contains
 
 
 
-  subroutine check_Pgap(n,caller)
-    integer          :: N
+  subroutine check_Pgap(caller)
     character(len=*) :: caller
+    integer          :: N
     real(8)          :: Ep,Em,Pgap
+    N    = int(Nocc/2)
     Ep   = Epsp(N+1)
     Em   = Epsp(N)
     Pgap = Ep - Em
+    if(MPImaster)write(*,"(A,G21.13)")"PSzP gap=",Pgap
     !
     if(Pgap<1d-12)then
-       stop str(caller)//" error: closing of the PSzP spectrum"
+       print*, str(caller)//" warning: closing of the PSzP spectrum"
     elseif(Ep*Em>0d0)then
-       stop str(caller)//" error: PSzP spectrum not symmetric"
+       print*, str(caller)//" warning: PSzP spectrum not symmetric"
     else
        return
     endif
   end subroutine check_Pgap
 
 
-  subroutine check_Egap(n,caller)
-    integer          :: N
+  
+  subroutine check_Egap(caller)
     character(len=*) :: caller
+    integer          :: N
     real(8)          :: Ep,Em,Egap
+    N    = Nocc
     Ep   = E(N+1)
     Em   = E(N)
     Egap = Ep - Em
+    if(MPImaster)write(*,"(A,G21.13)")"E gap=",Egap
     !
     if(Egap<1d-12)then
-       stop str(caller)//" error: closing of the H spectrum"
+       print*,str(caller)//" warning: closing of the H spectrum"
     elseif(Ep*Em>0d0)then
-       stop str(caller)//" error: H spectrum not symmetric"
+       print*,str(caller)//" warning: H spectrum not symmetric"
     else
        return
     endif

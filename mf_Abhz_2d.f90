@@ -196,7 +196,11 @@ contains
     H = Hij(:,:,1) + mf_Hij_correction(a)
     !
 #ifdef _SCALAPACK
-    call p_eigh(H,Ev,Nblock)
+    if(MpiSize==1)then
+       call eigh(H,Ev)
+    else
+       call p_eigh(H,Ev,Nblock)
+    endif
 #else
     call eigh(H,Ev)
 #endif
