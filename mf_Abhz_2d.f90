@@ -93,6 +93,27 @@ program mf_anderson_bhz_2d
   call setup_Abhz()
 
 
+  !< Get GF in post-processing
+  if(with_mats_gf.OR.with_real_gf)then
+     if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
+     call read_Bloch()
+     if(with_mats_gf)then
+        call get_gf(Gf,'mats')
+        if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
+     endif
+     !
+     if(with_real_gf)then
+        call get_gf(Gf,'real')
+        if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
+     endif
+     deallocate(Gf)
+     call end_parallel()
+     stop "Done here..."
+  end if
+  !
+
+
+
   !Start MF HERE:
   !>Read OR INIT MF params
   allocate(params(Nlat,2),params_prev(Nlat,2))
@@ -149,21 +170,6 @@ program mf_anderson_bhz_2d
      if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
   endif
 
-
-  !< Get GF:
-  if(with_mats_gf)then
-     allocate(Gf(Nlat,Nso,Nso,Lfreq))
-     call get_gf(Gf,'mats')
-     if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=5,itar=.true.)
-     deallocate(Gf)
-  endif
-
-  if(with_real_gf)then
-     allocate(Gf(Nlat,Nso,Nso,Lfreq))
-     call get_gf(Gf,'real')
-     if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=5,itar=.true.)
-     deallocate(Gf)
-  endif
 
 
 

@@ -179,13 +179,22 @@ program ed_bhz_2d_edge
      if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
   endif
 
+
+
+  
   !Get local Gf matsubara
   if(with_mats_gf)then
-     call write_gf(Gloc,"Gloc_"//str(idum),'mats',iprint=5,itar=.true.)
+     call write_gf(Gloc,"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
   endif
 
+
+  
+  !Get K
   if(with_kinetic)call dmft_kinetic_energy(Hij,self)
 
+
+
+  
   !S --> Sigma(w) real-axis:
   if(allocated(self))deallocate(self)
   allocate(self(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
@@ -199,7 +208,7 @@ program ed_bhz_2d_edge
      if(allocated(gloc))deallocate(gloc)
      allocate(gloc(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
      call dmft_get_gloc(Hij,gloc,self,axis='r')
-     call write_gf(gloc,"Gloc_"//str(idum),'real',iprint=5,itar=.true.)
+     call write_gf(gloc,"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
   endif
 
 
@@ -319,12 +328,13 @@ contains
 
   subroutine reduce_clutter_dmft
     if(MpiMaster)then
-       call file_targz(tarball="tar_impSigma_iw",pattern="impSigma_*iw*")
-       call file_targz(tarball="tar_impSigma_realw",pattern="impSigma_*realw*")
-       call file_targz(tarball="tar_impG_iw",pattern="impG_*iw*")
-       call file_targz(tarball="tar_impG_realw",pattern="impG_*realw*")
-       call file_targz(tarball="tar_impG0_iw",pattern="impG0_*iw*")
-       call file_targz(tarball="tar_impG0_realw",pattern="impG0_*realw*")
+       ! call file_targz(tarball="tar_impSigma_iw",pattern="impSigma_*iw*")
+       ! call file_targz(tarball="tar_impSigma_realw",pattern="impSigma_*realw*")
+       ! call file_targz(tarball="tar_impG_iw",pattern="impG_*iw*")
+       ! call file_targz(tarball="tar_impG_realw",pattern="impG_*realw*")
+       ! call file_targz(tarball="tar_impG0_iw",pattern="impG0_*iw*")
+       ! call file_targz(tarball="tar_impG0_realw",pattern="impG0_*realw*")
+       call file_targz(tarball="tar_gfmatrix",pattern="gfmatrix_ineq*.restart")
        call file_targz(tarball="tar_N2_correlation",pattern="N2_*.ed")
        call file_targz(tarball="tar_Sz2_correlation",pattern="Sz2_*.ed")
        call file_targz(tarball="tar_N2_correlation",pattern="N2_*.ed")

@@ -18,7 +18,7 @@ program anderson_bhz_2d
   USE COMMON
   USE LCM_SQUARE
   implicit none
-  
+
   integer,parameter                         :: Norb=2,Nspin=2
   real(8)                                   :: z2,sp_chern(2),bT
   !Solution
@@ -110,15 +110,35 @@ program anderson_bhz_2d
 
 
 
+  !< Get GF in post-processing
+  if(with_mats_gf.OR.with_real_gf)then
+     if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
+     call read_Bloch()
+     if(with_mats_gf)then
+        call get_gf(Gf,'mats')
+        if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
+     endif
+     !
+     if(with_real_gf)then
+        call get_gf(Gf,'real')
+        if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
+     endif
+     deallocate(Gf)
+     call end_parallel()
+     stop "Done here..."
+  end if
+  !
+
+
+
   !Solve the A_BHZ (non-interacting):
   call solve_Anderson_bhz()
 
   if(MPImaster)then
-     call save_array("Ebhz.dat",Ev)
      call save_array("sz_"//str(idum)//".dat",Szii)
      call save_array("tz_"//str(idum)//".dat",Tzii)
      call save_array("n_l1s1_"//str(idum)//".dat",Nii(:,1,1))
-     call save_array("n_l2s1_"//str(idum)//".dat",Nii(:,1,2))
+     call save_array("n_l1s2_"//str(idum)//".dat",Nii(:,1,2))
      call save_array("n_l2s1_"//str(idum)//".dat",Nii(:,2,1))
      call save_array("n_l2s2_"//str(idum)//".dat",Nii(:,2,2))
   endif
@@ -135,22 +155,6 @@ program anderson_bhz_2d
   if(with_lcm)then
      call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
      if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
-  endif
-
-
-  !< Get GF:
-  if(with_mats_gf)then
-     allocate(Gf(Nlat,Nso,Nso,Lfreq))
-     call get_gf(Gf,'mats')
-     if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=5,itar=.true.)
-     deallocate(Gf)
-  endif
-
-  if(with_real_gf)then
-     allocate(Gf(Nlat,Nso,Nso,Lfreq))
-     call get_gf(Gf,'real')
-     if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=5,itar=.true.)
-     deallocate(Gf)
   endif
 
 

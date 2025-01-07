@@ -711,24 +711,6 @@ contains
 
 
 
-  !------------------------------------------------------------------
-  ! Push Bloch states and levels to internal arrays U, E
-  !------------------------------------------------------------------
-  subroutine push_Bloch(Evec,Evals)
-    complex(8),dimension(:,:) :: Evec
-    real(8),dimension(:)      :: Evals
-    call check_dimension("push_Bloch")
-    if(allocated(U).AND.allocated(E))stop "push_Bloch warning: U, E allocated"
-    call assert_shape(Evec,[Nlso,Nlso],"push_Bloch","Evec")
-    call assert_shape(Evals,[Nlso]    ,"push_Bloch","Evals")
-    if(allocated(U))deallocate(U)
-    if(allocated(E))deallocate(E)
-    allocate(U, source=Evec)
-    allocate(E, source=Evals)
-    if(MPImaster)call save_array("Eh.dat",E)
-    if(MPImaster)call check_Egap("push_Bloch")
-  end subroutine push_Bloch
-
 
   !------------------------------------------------------------------
   ! Build the Bloch ground state projected representation of the
