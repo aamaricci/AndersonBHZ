@@ -222,28 +222,10 @@ contains
     if(allocated(E))deallocate(E)
     allocate(U, source=Evec)
     allocate(E, source=Evals)
-    if(MPImaster)call save_array("E.restart",E)
-    if(MPImaster)call save_array("U.restart",U)
+    if(MPImaster)call save_array("E.dat",E)
     if(MPImaster)call check_Egap("push_Bloch")
   end subroutine push_Bloch
 
-
-  !------------------------------------------------------------------
-  ! Read Bloch states and levels  U, E from files
-  !------------------------------------------------------------------
-  subroutine read_Bloch()
-    call check_dimension("push_Bloch")
-    if(allocated(U))deallocate(U)
-    if(allocated(E))deallocate(E)
-    allocate(U(Nlso,Nlso))
-    allocate(E(Nlso))
-    if(MPImaster)call read_array("E.restart",E)
-    if(MPImaster)call read_array("U.restart",U)
-#ifdef _SCALAPACK
-    call Bcast_MPI(MPI_COMM_WORLD,E)
-    call Bcast_MPI(MPI_COMM_WORLD,U)
-#endif
-  end subroutine read_Bloch
 
 
 

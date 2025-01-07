@@ -110,24 +110,6 @@ program anderson_bhz_2d
 
 
 
-  !< Get GF in post-processing
-  if(with_mats_gf.OR.with_real_gf)then
-     if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
-     call read_Bloch()
-     if(with_mats_gf)then
-        call get_gf(Gf,'mats')
-        if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
-     endif
-     !
-     if(with_real_gf)then
-        call get_gf(Gf,'real')
-        if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
-     endif
-     deallocate(Gf)
-     call end_parallel()
-     stop "Done here..."
-  end if
-  !
 
 
 
@@ -149,6 +131,7 @@ program anderson_bhz_2d
   !Get topological info:
   sp_chern(1) = single_point_spin_chern(spin=1)
   sp_chern(2) = single_point_spin_chern(spin=2)
+  if(MPImaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
   if(MPImaster)call save_array("spin_chern.dat",sp_chern)
   if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
   !
@@ -156,6 +139,21 @@ program anderson_bhz_2d
      call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
      if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
   endif
+
+
+
+  !< Get GF if required
+  if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
+  if(with_mats_gf)then
+     call get_gf(Gf,'mats')
+     if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
+  endif
+  !
+  if(with_real_gf)then
+     call get_gf(Gf,'real')
+     if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
+  endif
+  deallocate(Gf)
 
 
   call end_parallel()

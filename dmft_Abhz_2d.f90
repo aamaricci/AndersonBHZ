@@ -170,6 +170,7 @@ program ed_bhz_2d_edge
   !Get topological info:
   sp_chern(1) = single_point_spin_chern(spin=1)
   sp_chern(2) = single_point_spin_chern(spin=2)
+  if(MPImaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
   if(MPImaster)call save_array("spin_chern.dat",sp_chern)
   if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
   !
