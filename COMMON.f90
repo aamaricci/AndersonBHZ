@@ -160,6 +160,7 @@ contains
           Hlat(:,:,ilat,ilat) = Hlat(:,:,ilat,ilat) + erandom(ilat)*GammaS
        end select
     enddo
+    !
     !Reshape:
     Hij(:,:,1) = reshape_rank4_to_rank2(Hlat,Nso,Nlat)
     !

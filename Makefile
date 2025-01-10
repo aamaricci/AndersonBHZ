@@ -72,7 +72,10 @@ debug: ${OBJS}
 debug: compile
 
 
-compile: tb mf dmft
+
+
+
+compile: tb mf dmft data
 	@echo ""
 	@echo "Done"
 	@echo ""
@@ -95,11 +98,18 @@ dmft:
 	$(FC) ${OBJS} $(FLAG) dmft_$(EXE).f90 -o $(DIREXE)/dmft_$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	$(call colorecho,"created dmft_$(EXE) in  $(DIREXE)", 1)
 
+data:FLAG:=${FFLAG} ${FPPMPI}
+data:
+	@echo ""
+	$(call colorecho,"compiling data_analysis_$(EXE).f90 ", 3)
+	$(FC) ${OBJS} $(FLAG) get_data_$(EXE).f90 -o $(DIREXE)/get_data_$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG) get_gf_$(EXE).f90 -o $(DIREXE)/get_gf_$(EXE) ${GLOB_INC} ${GLOB_LIB}	
+	$(call colorecho,"created data_analysis_$(EXE) in  $(DIREXE)", 1)
 
 clean: 
 	@echo "Cleaning:"
 	@rm -f *.mod *.o *~
-	@rm -fv  $(DIREXE)/$(EXE) $(DIREXE)/mf_$(EXE) $(DIREXE)/dmft_$(EXE)
+	@rm -fv  $(DIREXE)/*$(EXE)
 
 .f90.o:	
 	$(FC) $(FLAG) -c $< ${GLOB_INC}
