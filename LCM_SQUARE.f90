@@ -247,7 +247,7 @@ contains
     complex(8)                                :: sum_chern
     integer                                   :: i,j
     !
-    method_='a' ;if(present(method))method_=method
+    method_='s' ;if(present(method))method_=method
     !
     call check_dimension("single_point_chern")
     call assert_shape(U,[size(U,1),Nlso],"single_point_chern","U")
@@ -304,7 +304,7 @@ contains
     complex(8)                                 :: sum_chern
     integer                                    :: i,m,N
     !
-    method_='a' ;if(present(method))method_=method
+    method_='s' ;if(present(method))method_=method
     !
     if(spin<1.OR.spin>2)stop "single_point_spin_chern error: spin < 1 OR spin > 2"
     call check_dimension("single_point_chern")

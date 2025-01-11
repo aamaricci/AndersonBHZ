@@ -130,16 +130,16 @@ program anderson_bhz_2d
      idum=list_idum(ii)
      !
      dir="IDUM_"//str(idum)
-     call create_dir(str(dir))
+     if(MpiMaster)call create_dir(str(dir))
      call chdir(str(dir))
      !
      !####################################
      !< Build up disorder:
-     call start_timer()
+     if(MpiMaster)call start_timer()
      call setup_Abhz()
      !Solve the A_BHZ (non-interacting):
      call solve_Anderson_bhz()
-     if(MPImaster)then
+     if(MpiMaster)then
         call save_array("sz_"//str(idum)//".dat",Szii)
         call save_array("tz_"//str(idum)//".dat",Tzii)
         call save_array("n_l1s1_"//str(idum)//".dat",Nii(:,1,1))
@@ -151,34 +151,34 @@ program anderson_bhz_2d
      !Get topological info:
      sp_chern(1) = single_point_spin_chern(spin=1)
      sp_chern(2) = single_point_spin_chern(spin=2)
-     if(MPImaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
-     if(MPImaster)call save_array("spin_chern.dat",sp_chern)
-     if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
+     if(MpiMaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
+     if(MpiMaster)call save_array("spin_chern.dat",sp_chern)
+     if(MpiMaster)print*,"spin_Chern UP,DW:",sp_chern
      !
      if(with_lcm)then
         if(bhz_pbc)then
            call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
-           if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+           if(MpiMaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
         else
            call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
-           if(MPImaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+           if(MpiMaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
         endif
      endif
      !< Get GF if required
      if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
      if(with_mats_gf)then
         call get_gf(Gf,'mats')
-        if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
+        if(MpiMaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
      endif
      !
      if(with_real_gf)then
         call get_gf(Gf,'real')
-        if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
+        if(MpiMaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
      endif
      deallocate(Gf)
      !< Free memory:
      call free_Abhz()
-     call stop_timer("IDUM: "//str(idum))
+     if(MpiMaster)call stop_timer("IDUM: "//str(idum))
      if(MPImaster)write(*,*)""
      !####################################
      !
