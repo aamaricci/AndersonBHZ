@@ -18,7 +18,7 @@ MODULE COMMON
   integer                                   :: Nblock=0
   !
   integer                                   :: Nk
-  integer                                   :: Nkpath,Npts
+  integer                                   :: Nkpath,Npts,Nidum
   complex(8),dimension(4,4)                 :: Gamma0
   complex(8),dimension(4,4)                 :: Gamma5
   complex(8),dimension(4,4)                 :: GammaX
@@ -26,6 +26,7 @@ MODULE COMMON
   complex(8),dimension(4,4)                 :: GammaS
   !Model parameters:
   character(len=20)                         :: inputFILE
+  character(len=20)                         :: idumFILE
   real(8)                                   :: Wdis
   integer                                   :: Idum
   integer                                   :: disorder_type
@@ -45,6 +46,9 @@ MODULE COMMON
   logical                                   :: with_real_gf
   !Random 
   real(8),allocatable,dimension(:)          :: erandom
+  integer,allocatable,dimension(:)          :: list_idum
+  character(len=255)                        :: here
+  character(len=20)                         :: dir
   !Hamiltonian
   complex(8),dimension(:,:,:),allocatable   :: Hk
   integer,dimension(:,:),allocatable        :: Links
@@ -117,9 +121,14 @@ contains
 
 
 
-  subroutine setup_Abhz()
+
+
+  subroutine setup_Abhz(verbose)
+    logical,optional :: verbose
+    logical :: verbose_
     logical :: bool
     integer :: ilat
+    verbose_=.true.;if(present(verbose))verbose_=verbose    
     if(allocated(Hlat))deallocate(Hlat)
     allocate(Hlat(Nso,Nso,Nlat,Nlat))
     if(allocated(Hij))deallocate(Hij)
@@ -128,8 +137,11 @@ contains
     allocate(erandom(Nlat))
     call check_dimension("setup_disorder")
     !
-    if(MPImaster)write(*,*)"Nlso=",Nlso
+    if(verbose_.AND.MPImaster)write(*,*)
+    if(verbose_.AND.MPImaster)write(*,*)"Solve IDUM:",idum
+    if(verbose_.AND.MPImaster)write(*,*)"Nlso      :",Nlso
     !
+    if(allocated(Links))deallocate(Links)
     allocate(Links(4,2))
     Links(1,:) = [1 ,0]
     Links(2,:) = [0 ,1]
@@ -147,7 +159,7 @@ contains
             stop "setup_disorder error: size(erandom_"//str(idum)//".restart) != Nlat"
        call read_array('erandom_'//str(idum)//'.restart',erandom)
     endif
-    if(MPImaster)call save_array('erandom_'//str(idum)//'.used',erandom)
+    if(verbose_.AND.MPImaster)call save_array('erandom_'//str(idum)//'.used',erandom)
     !
     do ilat=1,Nlat
        select case(disorder_type)
@@ -164,12 +176,7 @@ contains
     !Reshape:
     Hij(:,:,1) = reshape_rank4_to_rank2(Hlat,Nso,Nlat)
     !
-    if(MPImaster)then
-       open(99,file="list_idum.dat",access='append')
-       write(99,*)idum
-       close(99)
-    endif
-    !
+    if(allocated(Sz))deallocate(Sz)
     allocate(Sz(Nlso,Nlso))
     Sz = kron(eye(Nlat),GammaS)
     !
@@ -177,8 +184,20 @@ contains
   end subroutine setup_Abhz
 
 
+  subroutine free_Abhz
+    if(allocated(Hlat))deallocate(Hlat)
+    if(allocated(Hij))deallocate(Hij)
+    if(allocated(erandom))deallocate(erandom)
+    if(allocated(Links))deallocate(Links)
+    if(allocated(Sz))deallocate(Sz)
+    if(allocated(U))deallocate(U)
+    if(allocated(E))deallocate(E)
+    if(allocated(PSzP))deallocate(PSzP)
+    if(allocated(Epsp))deallocate(Epsp)
+  end subroutine free_Abhz
 
-
+    
+  
 
   !------------------------------------------------------------------
   ! Checks whether all the dimensions of the systems have been set
@@ -230,7 +249,6 @@ contains
 
 
 
-
   subroutine check_Pgap(caller)
     character(len=*) :: caller
     integer          :: N
@@ -250,6 +268,7 @@ contains
     endif
   end subroutine check_Pgap
 
+  
 
 
   subroutine check_Egap(caller)
@@ -273,8 +292,8 @@ contains
 
 
 
-  
-  
+
+
 
   subroutine get_gf(Gloc,axis)
     complex(8),dimension(Nlat,Nso,Nso,Lfreq) :: Gloc

@@ -14,17 +14,15 @@ program analysis
   real(8),dimension(:),allocatable    :: w
   real(8),dimension(:,:),allocatable  :: Aw
   real(8),dimension(:),allocatable    :: Egf,Egf2,Ggf,Sgf
-  integer                             :: ilat,iorb,ispin,i,Nidum,id,io
+  integer                             :: ilat,iorb,ispin,i,id,io
   complex(8),dimension(:),allocatable :: Gi
   character(len=64)                   :: suffix,iostr
-  character(len=255)                  :: here,pwd
-  character(len=20)                   :: dir
-  integer,allocatable,dimension(:)    :: list_idum
 
   call init_parallel()  
   !  
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="used.inputABHZ.conf")
+  call parse_cmd_variable(idumFILE,"idumFILE",default="list_idum")
   call parse_input_variable(Nx,"Nx",inputFILE,default=10)
   call parse_input_variable(Wdis,"WDIS",inputFILE,default=0d0)
   call parse_input_variable(idum,"IDUM",inputFILE,default=1234567)
@@ -76,14 +74,12 @@ program analysis
   call TB_set_ei([1d0,0d0],[0d0,1d0])
   call TB_set_bk([pi2,0d0],[0d0,pi2])
 
-  !< Build up disorder:
-  call setup_Abhz()
 
 
 
-  Nidum = file_length("list_idum")
+  Nidum = file_length(str(idumFILE))
   allocate(list_idum(Nidum))
-  open(unit=100,file="list_idum")
+  open(unit=100,file=str(idumFILE))
   do i=1,Nidum
      read(100,*)id,list_idum(i)
   enddo
@@ -100,8 +96,6 @@ program analysis
   allocate(Egf(Lfreq),Egf2(Lfreq),Ggf(Lfreq),Sgf(Lfreq))
 
 
-
-
   do ispin=1,Nspin
      do iorb=1,Norb
         !
@@ -111,6 +105,8 @@ program analysis
         Aw = zero
         do i=1+MPIrank,Nidum,MPIsize
            idum = list_idum(i)
+           !< Build up disorder:
+           call setup_Abhz(verbose=.false.)
            dir="IDUM_"//str(list_idum(i))
            suffix = str(idum)//str(iostr)
            call chdir(str(dir))
@@ -123,6 +119,8 @@ program analysis
            call system("rm -rf Gloc_"//str(suffix)//"_realw_indx*.dat")
            call chdir(str(here))
            if(MPImaster)call eta(i,Nidum)
+           !< Free memory:
+           call free_Abhz()
         enddo
         if(MPImaster)call stop_timer()
 #ifdef _SCALAPACK

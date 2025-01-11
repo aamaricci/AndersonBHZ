@@ -9,14 +9,13 @@ program analysis
   !Solution
   real(8),dimension(:),allocatable      :: Edata,Tzdata,Szdata,Gapdata,PSzPdata
   real(8),dimension(:),allocatable      :: Tzii,Szii
-  integer                               :: io,i,Nidum,id
+  integer                               :: io,i,id
   type(pdf_kernel)                      :: pdf_E,pdf_Tz,pdf_Sz,pdf_Gap,pdf_PSzP
-  character(len=255)                    :: here,pwd
-  character(len=20)                     :: dir
-  integer,allocatable,dimension(:)      :: list_idum
+
   !  
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="used.inputABHZ.conf")
+  call parse_cmd_variable(idumFILE,"idumFILE",default="list_idum")
   call parse_input_variable(Nx,"Nx",inputFILE,default=10)
   call parse_input_variable(Wdis,"WDIS",inputFILE,default=0d0)
   call parse_input_variable(idum,"IDUM",inputFILE,default=1234567)
@@ -67,21 +66,20 @@ program analysis
   call TB_set_ei([1d0,0d0],[0d0,1d0])
   call TB_set_bk([pi2,0d0],[0d0,pi2])
 
-  !< Build up disorder:
-  call setup_Abhz()
 
 
   allocate(E(Nlso),Epsp(Nocc))
   allocate(Tzii(Nlat))
   allocate(Szii(Nlat))
 
-  Nidum = file_length("list_idum")
+  Nidum = file_length(str(idumFILE))
   allocate(list_idum(Nidum))
-  open(unit=100,file="list_idum")
+  open(unit=100,file=str(idumFILE))
   do i=1,Nidum
      read(100,*)id,list_idum(i)
   enddo
   close(100)
+
 
   call getcwd(here)
   call system("rm -fv pdf_{E,PSzP,Tz,Sz,Egap}.dat")
