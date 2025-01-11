@@ -174,8 +174,7 @@ program anderson_bhz_2d
      !< Free memory:
      call free_Abhz()
      call stop_timer("IDUM: "//str(idum))
-     write(*,*)""
-     write(*,*)""
+     if(MPImaster)write(*,*)""
      !####################################
      !
      call chdir(str(here))
