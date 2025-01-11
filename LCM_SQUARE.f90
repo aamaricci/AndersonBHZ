@@ -506,7 +506,7 @@ contains
     Pb2 = ( Vb2(:,1:Nocc).mx.transpose(conjg(Vb2(:,1:Nocc))) )
     P   = (Pb1.mx.Pb2) - (Pb2.mx.Pb1)
     !
-    if(to_lower(method_)=='a')then
+    if(to_lower(method_)=='s')then
        Umb1 = periodic_gauge(U,-b1)
        Umb2 = periodic_gauge(U,-b2)
        Vmb1 = dual_state(U,Umb1)
@@ -559,7 +559,7 @@ contains
     real(8),dimension(Nso,Nso,Nlat,Nlat)       :: Chern_Q4
     integer                                    :: i,ix,iy,ilat,m,N
     !
-    method_='a' ;if(present(method))method_=method
+    method_='s' ;if(present(method))method_=method
     !
     if(spin<1.OR.spin>2)stop "PBC_local_spin_chern_marker error: spin < 1 OR spin > 2"
     !

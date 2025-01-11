@@ -156,8 +156,13 @@ program anderson_bhz_2d
      if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
      !
      if(with_lcm)then
-        call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
-        if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+        if(bhz_pbc)then
+           call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
+           if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+        else
+           call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
+           if(MPImaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+        endif
      endif
      !< Get GF if required
      if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
