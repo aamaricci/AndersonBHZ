@@ -34,6 +34,7 @@ program anderson_bhz_2d
   !  
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="inputABHZ.conf")
+  call parse_cmd_variable(idumFILE,"idumFILE",default="list_idum")
   call parse_input_variable(Nx,"Nx",inputFILE,default=10)
   call parse_input_variable(Wdis,"WDIS",inputFILE,default=0d0)
   call parse_input_variable(idum,"IDUM",inputFILE,default=1234567)
@@ -106,56 +107,83 @@ program anderson_bhz_2d
 
 
 
-
-
-  !####################################
-  !< Build up disorder:
-  if(MpiMaster)call start_timer()
-  call setup_Abhz()
-  !Solve the A_BHZ (non-interacting):
-  call solve_Anderson_bhz()
-  if(MpiMaster)then
-     call save_array("sz_"//str(idum)//".dat",Szii)
-     call save_array("tz_"//str(idum)//".dat",Tzii)
-     call save_array("n_l1s1_"//str(idum)//".dat",Nii(:,1,1))
-     call save_array("n_l1s2_"//str(idum)//".dat",Nii(:,1,2))
-     call save_array("n_l2s1_"//str(idum)//".dat",Nii(:,2,1))
-     call save_array("n_l2s2_"//str(idum)//".dat",Nii(:,2,2))
+  inquire(file=str(idumFILE),exist=bool)
+  if(bool)then
+     Nidum=file_length(str(idumFILE))
+     allocate(list_idum(Nidum))
+     open(unit=100,file=str(idumFILE))
+     do i=1,Nidum
+        read(100,*)id,list_idum(i)
+     enddo
+     close(100)
+  else
+     Nidum=1
+     allocate(list_idum(1))
+     list_idum(1)=idum
   endif
-  call push_Bloch(H,Ev)
-  !Get topological info:
-  sp_chern(1) = single_point_spin_chern(spin=1)
-  sp_chern(2) = single_point_spin_chern(spin=2)
-  if(MpiMaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
-  if(MpiMaster)call save_array("spin_chern.dat",sp_chern)
-  if(MpiMaster)print*,"spin_Chern UP,DW:",sp_chern
-  !
-  if(with_lcm)then
-     if(bhz_pbc)then
-        call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
-        if(MpiMaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
-     else
-        call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
-        if(MpiMaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+
+
+  call getcwd(here)
+
+
+  do ii=1,Nidum
+     idum=list_idum(ii)
+     !
+     dir="IDUM_"//str(idum)
+     if(MpiMaster)call create_dir(str(dir))
+     call chdir(str(dir))
+     !
+     !####################################
+     !< Build up disorder:
+     if(MpiMaster)call start_timer()
+     call setup_Abhz()
+     !Solve the A_BHZ (non-interacting):
+     call solve_Anderson_bhz()
+     if(MpiMaster)then
+        call save_array("sz_"//str(idum)//".dat",Szii)
+        call save_array("tz_"//str(idum)//".dat",Tzii)
+        call save_array("n_l1s1_"//str(idum)//".dat",Nii(:,1,1))
+        call save_array("n_l1s2_"//str(idum)//".dat",Nii(:,1,2))
+        call save_array("n_l2s1_"//str(idum)//".dat",Nii(:,2,1))
+        call save_array("n_l2s2_"//str(idum)//".dat",Nii(:,2,2))
      endif
-  endif
-  !< Get GF if required
-  if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
-  if(with_mats_gf)then
-     call get_gf(Gf,'mats')
-     if(MpiMaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
-  endif
-  !
-  if(with_real_gf)then
-     call get_gf(Gf,'real')
-     if(MpiMaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
-  endif
-  deallocate(Gf)
-  !< Free memory:
-  call free_Abhz()
-  if(MpiMaster)call stop_timer("IDUM: "//str(idum))
-  if(MPImaster)write(*,*)""
-  !####################################
+     call push_Bloch(H,Ev)
+     !Get topological info:
+     sp_chern(1) = single_point_spin_chern(spin=1)
+     sp_chern(2) = single_point_spin_chern(spin=2)
+     if(MpiMaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
+     if(MpiMaster)call save_array("spin_chern.dat",sp_chern)
+     if(MpiMaster)print*,"spin_Chern UP,DW:",sp_chern
+     !
+     if(with_lcm)then
+        if(bhz_pbc)then
+           call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
+           if(MpiMaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+        else
+           call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
+           if(MpiMaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+        endif
+     endif
+     !< Get GF if required
+     if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
+     if(with_mats_gf)then
+        call get_gf(Gf,'mats')
+        if(MpiMaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
+     endif
+     !
+     if(with_real_gf)then
+        call get_gf(Gf,'real')
+        if(MpiMaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
+     endif
+     deallocate(Gf)
+     !< Free memory:
+     call free_Abhz()
+     if(MpiMaster)call stop_timer("IDUM: "//str(idum))
+     if(MPImaster)write(*,*)""
+     !####################################
+     !
+     call chdir(str(here))
+  end do
 
 
   call end_parallel()

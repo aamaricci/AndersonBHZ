@@ -14,10 +14,11 @@ program analysis
   real(8),dimension(:),allocatable    :: w
   real(8),dimension(:,:),allocatable  :: Aw
   real(8),dimension(:),allocatable    :: Egf,Egf2,Ggf,Sgf
-  integer                             :: ilat,iorb,ispin,i,id,io
+  integer                             :: ilat,iorb,ispin,i,id,io,L
   complex(8),dimension(:),allocatable :: Gi
   character(len=64)                   :: suffix,iostr
-
+  integer :: NNspin
+  
   call init_parallel()  
   !  
   !Read input:
@@ -44,6 +45,7 @@ program analysis
   call parse_input_variable(with_mats_gf,"WITH_MATS_GF",inputFILE,default=.false.)
   call parse_input_variable(with_real_gf,"WITH_REAL_GF",inputFILE,default=.false.)
   call parse_input_variable(Nblock,"NBLOCK",inputFILE,default=4)
+  call parse_cmd_variable(NNspin,"NNspin",default=1)
   !
   !Save variables into DMFT_TOOLS memory pool
   bT = 1d0/temp
@@ -96,7 +98,7 @@ program analysis
   allocate(Egf(Lfreq),Egf2(Lfreq),Ggf(Lfreq),Sgf(Lfreq))
 
 
-  do ispin=1,Nspin
+  do ispin=1,NNspin
      do iorb=1,Norb
         !
         iostr = "_l"//str(iorb)//"m"//str(iorb)//"_s"//str(ispin)
@@ -112,6 +114,8 @@ program analysis
            call chdir(str(dir))
            call system("tar -xjf tar_Gloc_"//str(suffix)//"_realw.tar.bz2")
            do ilat=1,Nlat
+              L = file_length("Gloc_"//str(suffix)//"_realw_indx"//str(ilat,6)//".dat",verbose=.false.)
+              if(L/=Lfreq)cycle
               call gf_read("Gloc_"//str(suffix)//"_realw_indx"//str(ilat,6)//".dat",w,Gi)
               io = ilat + (i-1)*Nlat
               Aw(io,:)  = abs(-dimag(Gi))/pi
@@ -129,11 +133,14 @@ program analysis
         !
         Egf = sum(Aw,dim=1)/Nlat/Nidum
         Egf2= sum(Aw*AW,dim=1)/Nlat/Nidum
-
-        Ggf = sum(log(Aw),dim=1)/Nlat/Nidum
-        Ggf = exp(Ggf)
         Sgf = sqrt(Egf2 - Egf**2)
         !
+        !
+        Aw  = log(Aw)
+        Ggf = sum(Aw,dim=1)/Nlat/Nidum
+        Ggf = exp(Ggf)
+        !
+        w = build_frequency_array("real")
         call gf_plot("EAw"//str(iostr)//"_realw.dat",w,Egf,Sgf)
         call gf_plot("GAw"//str(iostr)//"_realw.dat",w,Ggf)
         !

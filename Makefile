@@ -83,7 +83,8 @@ compile: tb mf dmft data
 tb:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 3)
-	$(FC) ${OBJS} $(FLAG)    $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG)     $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG) loop$(EXE).f90 -o    $(DIREXE)/loop$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
 mf:
