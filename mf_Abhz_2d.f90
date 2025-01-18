@@ -4,7 +4,8 @@ program mf_anderson_bhz_2d
   implicit none
   integer,parameter                         :: Norb=2,Nspin=2
   real(8)                                   :: Uloc,Jh
-  real(8)                                   :: z2,sp_chern(2)
+  real(8)                                   :: z2,sp_chern(2),bT
+  !Solution
   real(8),dimension(:),allocatable          :: Ev
   complex(8),dimension(:,:),allocatable     :: H
   real(8),dimension(:,:,:),allocatable      :: Nii
@@ -48,7 +49,8 @@ program mf_anderson_bhz_2d
   !
   !
   !Save variables into DMFT_TOOLS memory pool
-  call add_ctrl_var(1d0/temp,"BETA")
+  bT = 1d0/temp
+  call add_ctrl_var(bT,"BETA")
   call add_ctrl_var(Norb,"NORB")
   call add_ctrl_var(Nspin,"Nspin")
   call add_ctrl_var(mu,"xmu")
@@ -89,21 +91,24 @@ program mf_anderson_bhz_2d
   deallocate(Hk)
 
 
+  !####################################
   !< Build up disorder:
+  if(MpiMaster)call start_timer()
   call setup_Abhz()
-
-
-
+  !
   !Start MF HERE:
   !>Read OR INIT MF params
   allocate(params(Nlat,2),params_prev(Nlat,2))
   do ilat=1,Nlat
      params(ilat,:)= [p_field,p_field]   ![Tz,Sz]
   enddo
-  inquire(file="params.restart",exist=iexist)
-  if(iexist)then
-     call read_array("params.restart",params)     
-     params(:,2)=params(:,2)+p_field
+  if(MPImaster)then
+     inquire(file="params.restart",exist=iexist)
+     if(iexist)then
+        call read_array("params.restart",params)     
+        params(:,2)=params(:,2)+p_field
+        call Bcast_MPI(MPI_COMM_WORLD,params)
+     endif
   endif
   !
   !> Mean-Field cycle with linear mixing
@@ -135,10 +140,9 @@ program mf_anderson_bhz_2d
      call end_loop
   end do
   if(MPImaster)call save_array("params.restart",params)
-
-
+  !
   call push_Bloch(H,Ev)
-
+  !
   !Get topological info:
   sp_chern(1) = single_point_spin_chern(spin=1)
   sp_chern(2) = single_point_spin_chern(spin=2)
@@ -147,11 +151,14 @@ program mf_anderson_bhz_2d
   if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
   !
   if(with_lcm)then
-     call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
-     if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+     if(bhz_pbc)then
+        call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
+        if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+     else
+        call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
+        if(MpiMaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+     endif
   endif
-
-
   !< Get GF if required
   if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
   if(with_mats_gf)then
@@ -164,11 +171,15 @@ program mf_anderson_bhz_2d
      if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
   endif
   deallocate(Gf)
+  !
+  !< Free memory:
+  call free_Abhz()
+  if(MpiMaster)call stop_timer("IDUM: "//str(idum))
+  if(MPImaster)write(*,*)""
+  !####################################
 
 
   call end_parallel()
-
-
 
 
 contains

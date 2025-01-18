@@ -40,7 +40,6 @@ endif
 
 ##$ REVISION SOFTWARE VARIABLES
 REV=$(shell git rev-parse HEAD)
-REV=$(shell git rev-parse HEAD)
 VER = 'character(len=41),parameter :: revision = "$(REV)"' > revision.inc
 
 ifeq ($(BRANCH),_master)
@@ -75,24 +74,26 @@ debug: compile
 
 
 
-compile: tb mf dmft data
+compile: tb mf dmft
 	@echo ""
 	@echo "Done"
 	@echo ""
 
+tb:FLAG:=${FFLAG} ${FPPMPI}
 tb:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 3)
 	$(FC) ${OBJS} $(FLAG)     $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(FC) ${OBJS} $(FLAG) loop$(EXE).f90 -o    $(DIREXE)/loop$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
+mf:FLAG:=${FFLAG} ${FPPMPI}
 mf:
 	@echo ""
 	$(call colorecho,"compiling mf_$(EXE).f90 ", 3)
 	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	$(call colorecho,"created mf_$(EXE) in  $(DIREXE)", 1)
 
+dmft:FLAG:=${FFLAG} ${FPPMPI}
 dmft:
 	@echo ""
 	$(call colorecho,"compiling dmft_$(EXE).f90 ", 3)

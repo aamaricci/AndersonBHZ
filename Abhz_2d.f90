@@ -112,8 +112,10 @@ program anderson_bhz_2d
   !< Build up disorder:
   if(MpiMaster)call start_timer()
   call setup_Abhz()
+  !
   !Solve the A_BHZ (non-interacting):
   call solve_Anderson_bhz()
+  !
   if(MpiMaster)then
      call save_array("sz_"//str(idum)//".dat",Szii)
      call save_array("tz_"//str(idum)//".dat",Tzii)

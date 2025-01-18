@@ -258,6 +258,7 @@ contains
     Em   = Epsp(N)
     Pgap = Ep - Em
     if(MPImaster)write(*,"(A,G21.13)")"PSzP gap=",Pgap
+    if(MPImaster)call save_array("PSzPgap.dat",Pgap)
     !
     if(Pgap<1d-12)then
        print*, str(caller)//" warning: closing of the PSzP spectrum"
@@ -280,6 +281,7 @@ contains
     Em   = E(N)
     Egap = Ep - Em
     if(MPImaster)write(*,"(A,G21.13)")"E gap=",Egap
+    if(MPImaster)call save_array("Egap.dat",Egap)
     !
     if(Egap<1d-12)then
        print*,str(caller)//" warning: closing of the H spectrum"
