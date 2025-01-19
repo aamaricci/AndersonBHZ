@@ -114,13 +114,13 @@ program analysis
   call pdf_print(pdf_PSzP,"pdf_PSzP.dat")
 
 
-  pdf_Tz = get_pdf_from_data(Tzdata,200)
+  pdf_Tz = get_pdf_from_data(Tzdata,200,ini=1d-5)
   call pdf_print(pdf_Tz,"pdf_Tz.dat")  
 
   pdf_Sz = get_pdf_from_data(Szdata,200)
   call pdf_print(pdf_Sz,"pdf_Sz.dat")  
 
-  pdf_Gap = get_pdf_from_data(Gapdata,200)
+  pdf_Gap = get_pdf_from_data(Gapdata,200,ini=1d-5)
   call pdf_print(pdf_Gap,"pdf_Egap.dat")  
 
 
@@ -130,16 +130,19 @@ program analysis
 contains
 
 
-  function get_pdf_from_data(data,N,sdev) result(pdf)
+  function get_pdf_from_data(data,N,sdev,ini,end) result(pdf)
     real(8),dimension(:),intent(in) :: data
     integer,intent(in)              :: N
-    real(8),optional                :: sdev    
+    real(8),optional                :: sdev,ini,end  
     type(pdf_kernel)                :: pdf
     real(8)                         :: a,b
     real(8)                         :: sigma
     !
-    a = minval(data)  ; b = maxval(data)
-    a = a-0.1d0*abs(a); b = b + 0.1d0*abs(b)
+    a = minval(data) ;a = a-0.1d0*abs(a)
+    b = maxval(data) ;b = b + 0.1d0*abs(b)
+    if(present(ini))a = ini
+    if(present(end))b = end
+    !
     call pdf_allocate(pdf,N)
     call pdf_set_range(pdf,a,b)
     call pdf_sigma(pdf,data,sigma)

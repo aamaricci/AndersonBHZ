@@ -15,7 +15,7 @@ program mf_anderson_bhz_2d
   logical                                   :: converged,iexist
   integer                                   :: Iter,Nsuccess=2
   real(8),dimension(:,:),allocatable        :: params,params_prev
-
+  character(len=100) :: pfile
 
   call init_parallel()
   !  
@@ -95,24 +95,25 @@ program mf_anderson_bhz_2d
   !< Build up disorder:
   if(MpiMaster)call start_timer()
   call setup_Abhz()
+  pfile = "params_"//str(idum)
   !
   !Start MF HERE:
   !>Read OR INIT MF params
   allocate(params(Nlat,2),params_prev(Nlat,2))
-  do ilat=1,Nlat
-     params(ilat,:)= [p_field,p_field]   ![Tz,Sz]
-  enddo
   if(MPImaster)then
-     inquire(file="params.restart",exist=iexist)
+     do ilat=1,Nlat
+        params(ilat,:)= [p_field,p_field]   ![Tz,Sz]
+     enddo
+     inquire(file=str(pfile)//".restart",exist=iexist)
      if(iexist)then
-        call read_array("params.restart",params)     
+        call read_array(str(pfile)//".restart",params)     
         params(:,2)=params(:,2)+p_field
-        call Bcast_MPI(MPI_COMM_WORLD,params)
      endif
   endif
+  call Bcast_MPI(MPI_COMM_WORLD,params)
   !
   !> Mean-Field cycle with linear mixing
-  if(MPImaster)call save_array("params.init",params)
+  if(MPImaster)call save_array(str(pfile)//".init",params)
   converged=.false. ; iter=0
   do while(.not.converged.AND.iter<maxiter)
      iter=iter+1
@@ -123,8 +124,6 @@ program mf_anderson_bhz_2d
      if(MPImaster)then
         write(*,*)"E(Tz), sd(Tz):",get_mean(Tzii),get_sd(Tzii)
         write(*,*)"E(Sz), sd(Sz):",get_mean(Szii),get_sd(Szii)
-        write(*,*)"E(N1), sd(N1):",get_mean(N1ii),get_sd(N1ii)
-        write(*,*)"E(N2), sd(N2):",get_mean(N2ii),get_sd(N2ii)
         call save_array("Ebhz.dat",Ev)
         call save_array("tz_"//str(idum)//".dat",Tzii)
         call save_array("sz_"//str(idum)//".dat",Szii)
@@ -139,7 +138,7 @@ program mf_anderson_bhz_2d
      !
      call end_loop
   end do
-  if(MPImaster)call save_array("params.restart",params)
+  if(MPImaster)call save_array(str(pfile)//".restart",params)
   !
   call push_Bloch(H,Ev)
   !
