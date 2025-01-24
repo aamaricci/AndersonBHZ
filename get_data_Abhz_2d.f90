@@ -114,7 +114,7 @@ program analysis
   call pdf_print(pdf_PSzP,"pdf_PSzP.dat")
 
 
-  pdf_Tz = get_pdf_from_data(Tzdata,200,ini=1d-5)
+  pdf_Tz = get_pdf_from_data(-Tzdata,200,ini=1d-5,end=1d0)
   call pdf_print(pdf_Tz,"pdf_Tz.dat")  
 
   pdf_Sz = get_pdf_from_data(Szdata,200)
@@ -138,7 +138,7 @@ contains
     real(8)                         :: a,b
     real(8)                         :: sigma
     !
-    a = minval(data) ;a = a-0.1d0*abs(a)
+    a = minval(data) ;a = a - 0.1d0*abs(a)
     b = maxval(data) ;b = b + 0.1d0*abs(b)
     if(present(ini))a = ini
     if(present(end))b = end

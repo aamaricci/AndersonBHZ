@@ -261,11 +261,9 @@ contains
     if(MPImaster)call save_array("PSzPgap.dat",Pgap)
     !
     if(Pgap<1d-12)then
-       print*, str(caller)//" warning: closing of the PSzP spectrum"
+       if(MPImaster)write(*,*)str(caller)//" warning: closing of the PSzP spectrum"
     elseif(Ep*Em>0d0)then
-       print*, str(caller)//" warning: PSzP spectrum not symmetric"
-    else
-       return
+       if(MPImaster)write(*,*)str(caller)//" warning: PSzP spectrum not symmetric"
     endif
   end subroutine check_Pgap
 
@@ -284,11 +282,9 @@ contains
     if(MPImaster)call save_array("Egap.dat",Egap)
     !
     if(Egap<1d-12)then
-       print*,str(caller)//" warning: closing of the H spectrum"
+       if(MPImaster)write(*,*)str(caller)//" warning: closing of the H spectrum"
     elseif(Ep*Em>0d0)then
-       print*,str(caller)//" warning: H spectrum not symmetric"
-    else
-       return
+       if(MPImaster)write(*,*)str(caller)//" warning: H spectrum not symmetric"
     endif
   end subroutine check_Egap
 
