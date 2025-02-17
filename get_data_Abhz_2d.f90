@@ -76,7 +76,7 @@ program analysis
   allocate(list_idum(Nidum))
   open(unit=100,file=str(idumFILE))
   do i=1,Nidum
-     read(100,*)id,list_idum(i)
+     read(100,*)list_idum(i)
   enddo
   close(100)
 
@@ -114,13 +114,13 @@ program analysis
   call pdf_print(pdf_PSzP,"pdf_PSzP.dat")
 
 
-  pdf_Tz = get_pdf_from_data(-Tzdata,200,ini=1d-5,end=1d0)
+  pdf_Tz = get_pdf_from_data(-Tzdata,500,ini=1d-5,end=1d0)
   call pdf_print(pdf_Tz,"pdf_Tz.dat")  
 
-  pdf_Sz = get_pdf_from_data(Szdata,200)
+  pdf_Sz = get_pdf_from_data(Szdata,500)
   call pdf_print(pdf_Sz,"pdf_Sz.dat")  
 
-  pdf_Gap = get_pdf_from_data(Gapdata,200,ini=1d-5)
+  pdf_Gap = get_pdf_from_data(Gapdata,500,ini=1d-5)
   call pdf_print(pdf_Gap,"pdf_Egap.dat")  
 
 

@@ -112,6 +112,22 @@ program ed_bhz_2d_edge
   call ed_set_hloc(Hloc,Nlat)
 
 
+
+
+  !=========================================  
+  !POST-PROCESSING:
+  !=========================================
+  !Get K
+  if(with_kinetic)call get_Ekin
+  !
+  !Get local Gf matsubara
+  if(with_mats_gf)call get_gf_mats
+  !
+  !Get local Gf real-axis  
+  if(with_real_gf)call get_gf_real
+  !=========================================
+
+
   Nb=ed_get_bath_dimension()
 
   allocate(Bath(Nlat,Nb) )
@@ -159,9 +175,6 @@ program ed_bhz_2d_edge
   !Reduce clutter
   call reduce_clutter_dmft
 
-  !Save Sigma Matsubara
-  if(MPImaster)call save_array("Smats",self)
-
 
   !Push Sigma to topological Hamiltonian
   call push_Htop(Self)
@@ -181,44 +194,16 @@ program ed_bhz_2d_edge
   endif
 
 
-
-  
-  !Get local Gf matsubara
-  if(with_mats_gf)then
-     call write_gf(Gloc,"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
-  endif
-
-
-  
-  !Get K
-  if(with_kinetic)call dmft_kinetic_energy(Hij,self)
-
-
-
-  
-  !S --> Sigma(w) real-axis:
-  if(allocated(self))deallocate(self)
-  allocate(self(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
-  call ed_get_sigma(self,Nlat,'r')
-
-  !Save Sigma Real-axis
-  if(MPImaster)call save_array("Sreal",self)
-
-  !Get local Gf real-axis  
-  if(with_real_gf)then
-     if(allocated(gloc))deallocate(gloc)
-     allocate(gloc(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
-     call dmft_get_gloc(Hij,gloc,self,axis='r')
-     call write_gf(gloc,"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
-  endif
-
-
-
   call finalize_MPI()
 
 
-  
+
 contains
+
+
+
+
+
 
 
   subroutine push_Htop(Smats) 
@@ -259,7 +244,47 @@ contains
   end subroutine push_Htop
 
 
+  subroutine get_gf_mats
+    !S --> Sigma(iw) real-axis:
+    if(allocated(self))deallocate(self)
+    if(allocated(gloc))deallocate(gloc)
+    allocate(self(Nlat,Nspin,Nspin,Norb,Norb,Lmats))
+    allocate(gloc(Nlat,Nspin,Nspin,Norb,Norb,Lmats))
+    call ed_get_sigma(self,Nlat,'m')
+    call dmft_get_gloc(Hij,gloc,self,axis='m')
+    call write_gf(Gloc,"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
+    call finalize_MPI()
+    stop
+  end subroutine get_gf_mats
 
+
+
+  subroutine get_gf_real
+    !S --> Sigma(w) real-axis:
+    if(allocated(self))deallocate(self)
+    if(allocated(gloc))deallocate(gloc)
+    allocate(self(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
+    allocate(gloc(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
+    call ed_get_sigma(self,Nlat,'r')
+    call dmft_get_gloc(Hij,gloc,self,axis='r')
+    call write_gf(gloc,"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
+    call finalize_MPI()
+    stop
+  end subroutine get_gf_real
+
+
+
+  subroutine get_Ekin
+    if(allocated(self))deallocate(self)
+    allocate(self(Nlat,Nspin,Nspin,Norb,Norb,Lmats))
+    call ed_get_sigma(self,Nlat,'m')
+    call dmft_kinetic_energy(Hij,self)
+    call finalize_MPI()
+    stop
+  end subroutine get_Ekin
+
+
+  
 
   function select_block(ip,Matrix) result(Vblock)
     integer                                          :: ip
@@ -329,13 +354,7 @@ contains
 
   subroutine reduce_clutter_dmft
     if(MpiMaster)then
-       ! call file_targz(tarball="tar_impSigma_iw",pattern="impSigma_*iw*")
-       ! call file_targz(tarball="tar_impSigma_realw",pattern="impSigma_*realw*")
-       ! call file_targz(tarball="tar_impG_iw",pattern="impG_*iw*")
-       ! call file_targz(tarball="tar_impG_realw",pattern="impG_*realw*")
-       ! call file_targz(tarball="tar_impG0_iw",pattern="impG0_*iw*")
-       ! call file_targz(tarball="tar_impG0_realw",pattern="impG0_*realw*")
-       call file_targz(tarball="tar_gfmatrix",pattern="gfmatrix_ineq*.restart")
+       ! call file_targz(tarball="tar_gfmatrix",pattern="gfmatrix_ineq*.restart")
        call file_targz(tarball="tar_N2_correlation",pattern="N2_*.ed")
        call file_targz(tarball="tar_Sz2_correlation",pattern="Sz2_*.ed")
        call file_targz(tarball="tar_N2_correlation",pattern="N2_*.ed")
@@ -352,4 +371,4 @@ contains
 
 
 
-end program
+end program ed_bhz_2d_edge
