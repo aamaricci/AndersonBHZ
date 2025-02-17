@@ -172,8 +172,6 @@ program ed_bhz_2d_edge
      call end_loop
   enddo
 
-  !Reduce clutter
-  call reduce_clutter_dmft
 
 
   !Push Sigma to topological Hamiltonian
@@ -192,6 +190,10 @@ program ed_bhz_2d_edge
      call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
      if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
   endif
+
+
+  !Reduce clutter
+  call reduce_clutter_dmft
 
 
   call finalize_MPI()
@@ -245,6 +247,8 @@ contains
 
 
   subroutine get_gf_mats
+    if(MpiMaster)call file_untargz(tarball="tar_gfmatrix")
+    call barrier_MPI(Mpi_COmm_World)
     !S --> Sigma(iw) real-axis:
     if(allocated(self))deallocate(self)
     if(allocated(gloc))deallocate(gloc)
@@ -253,6 +257,7 @@ contains
     call ed_get_sigma(self,Nlat,'m')
     call dmft_get_gloc(Hij,gloc,self,axis='m')
     call write_gf(Gloc,"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
+    if(MpiMaster)call file_targz(tarball="tar_gfmatrix",pattern="gfmatrix_ineq*.restart")       
     call finalize_MPI()
     stop
   end subroutine get_gf_mats
@@ -260,6 +265,8 @@ contains
 
 
   subroutine get_gf_real
+    if(MpiMaster)call file_untargz(tarball="tar_gfmatrix")
+    call barrier_MPI(Mpi_COmm_World)
     !S --> Sigma(w) real-axis:
     if(allocated(self))deallocate(self)
     if(allocated(gloc))deallocate(gloc)
@@ -268,6 +275,7 @@ contains
     call ed_get_sigma(self,Nlat,'r')
     call dmft_get_gloc(Hij,gloc,self,axis='r')
     call write_gf(gloc,"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
+    if(MpiMaster)call file_targz(tarball="tar_gfmatrix",pattern="gfmatrix_ineq*.restart")       
     call finalize_MPI()
     stop
   end subroutine get_gf_real
@@ -275,16 +283,19 @@ contains
 
 
   subroutine get_Ekin
+    if(MpiMaster)call file_untargz(tarball="tar_gfmatrix")
+    call barrier_MPI(Mpi_COmm_World)
     if(allocated(self))deallocate(self)
     allocate(self(Nlat,Nspin,Nspin,Norb,Norb,Lmats))
     call ed_get_sigma(self,Nlat,'m')
     call dmft_kinetic_energy(Hij,self)
+    if(MpiMaster)call file_targz(tarball="tar_gfmatrix",pattern="gfmatrix_ineq*.restart")       
     call finalize_MPI()
     stop
   end subroutine get_Ekin
 
 
-  
+
 
   function select_block(ip,Matrix) result(Vblock)
     integer                                          :: ip
@@ -354,18 +365,13 @@ contains
 
   subroutine reduce_clutter_dmft
     if(MpiMaster)then
-       ! call file_targz(tarball="tar_gfmatrix",pattern="gfmatrix_ineq*.restart")
-       call file_targz(tarball="tar_N2_correlation",pattern="N2_*.ed")
-       call file_targz(tarball="tar_Sz2_correlation",pattern="Sz2_*.ed")
-       call file_targz(tarball="tar_N2_correlation",pattern="N2_*.ed")
-       call file_targz(tarball="tar_Z_imp",pattern="Z_*.ed")
-       call file_targz(tarball="tar_Sig_imp",pattern="Sig_*.ed")
-       call file_targz(tarball="tar_RDM_imp",pattern="reduced_density_matrix_*.ed")
-       call file_targz(tarball="tar_energy_imp",pattern="energy_*.ed")
-       call file_targz(tarball="tar_fit_weiss",pattern="fit_weiss*")
+       call file_targz(tarball="tar_gfmatrix",pattern="gfmatrix_ineq*.restart")       
+       call file_targz(tarball="tar_Z_Sig_Sz2_N2_correlation",pattern="{Sz2_*,N2_*,Z_*,Sig_*}.ed")
+       call file_targz(tarball="tar_RDM",pattern="reduced_density_matrix_*.ed")
+       call file_targz(tarball="tar_energy",pattern="energy_*.ed")
        call file_targz(tarball="tar_eigenvalues_list",pattern="eigenvalues_list*")
-       call file_targz(tarball="tar_state_list",pattern="state_list*")
-       call file_targz(tarball="tar_chi2fit",pattern="chi2fit_results*")       
+       call file_targz(tarball="tar_chi2fit",pattern="chi2fit_results*")
+       call system("rm -rfv fit_weiss* state_list* sectors*.restart dfmatrix*.restart")
     endif
   end subroutine reduce_clutter_dmft
 
