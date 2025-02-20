@@ -243,7 +243,7 @@ contains
     allocate(U, source=Evec)
     allocate(E, source=Evals)
     if(MPImaster)call save_array("E.dat",E)
-    if(MPImaster)call check_Egap("push_Bloch")
+    call check_Egap("push_Bloch")
   end subroutine push_Bloch
 
 
@@ -281,11 +281,11 @@ contains
     if(MPImaster)write(*,"(A,G21.13)")"E gap=",Egap
     if(MPImaster)call save_array("Egap.dat",Egap)
     !
-    if(Egap<1d-12)then
-       if(MPImaster)write(*,*)str(caller)//" warning: closing of the H spectrum"
-    elseif(Ep*Em>0d0)then
-       if(MPImaster)write(*,*)str(caller)//" warning: H spectrum not symmetric"
-    endif
+    ! if(Egap<1d-12)then
+    !    if(MPImaster)write(*,*)str(caller)//" warning: closing of the H spectrum"
+    ! elseif(Ep*Em>0d0)then
+    !    if(MPImaster)write(*,*)str(caller)//" warning: H spectrum not symmetric"
+    ! endif
   end subroutine check_Egap
 
 
