@@ -1,3 +1,19 @@
+! MODEL Hamiltonian is: H + \eta*\Gamma_\eta
+! H in k-space reads:
+! |     h^{2x2}(k)              &            0d0              |
+! |         0d0                 &        [h^{2x2}]*(-k)       |
+!
+!
+! h^{2x2}(k):=
+!
+! | m-(Cos{kx}+Cos{ky})         & \lambda*(Sin{kx}-i*Sin{ky}) |
+! | \lambda*(Sin{kx}+i*Sin{ky}) & -m+(Cos{kx}+Cos{ky})        |
+!
+!\eta is a random variable uniformly distributed within -W:W
+! acting in the channel defined by the Gamma matrix \Gamma_\eta
+! \eta=0 => N disorder
+! \eta=1 => Tz disorder
+! \eta=2 => Sz disorder
 program mf_anderson_bhz_2d
   USE COMMON
   USE LCM_SQUARE
@@ -11,8 +27,8 @@ program mf_anderson_bhz_2d
   real(8),dimension(:,:,:),allocatable      :: Nii
   real(8),dimension(:),allocatable          :: Tzii,Szii,N1ii,N2ii
   complex(8),dimension(:,:,:,:),allocatable :: Gf
-  integer                                   :: ilat,iorb,ispin,io
-  logical                                   :: converged,iexist
+  integer                                   :: ilat,iorb,ispin,io,ii,id
+  logical                                   :: converged,iexist,ioidum,post_processing
   integer                                   :: Iter,Nsuccess=2
   real(8),dimension(:,:),allocatable        :: params,params_prev
   character(len=100) :: pfile
@@ -21,6 +37,7 @@ program mf_anderson_bhz_2d
   !  
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="inputABHZ.conf")
+  call parse_cmd_variable(idumFILE,"idumFILE",default="list_idum")
   call parse_input_variable(Nx,"Nx",inputFILE,default=10)
   call parse_input_variable(Wdis,"WDIS",inputFILE,default=0d0)
   call parse_input_variable(idum,"IDUM",inputFILE,default=1234567)
@@ -40,8 +57,7 @@ program mf_anderson_bhz_2d
   call parse_input_variable(p_field,"P_FIELD",inputFILE,default=0.01d0)
   call parse_input_variable(it_error,"IT_ERROR",inputFILE,default=1d-5)
   call parse_input_variable(maxiter,"MAXITER",inputFILE,default=100)
-  call parse_input_variable(with_lcm,"WITH_lcm",inputFILE,default=.false.)
-  call parse_input_variable(with_mats_gf,"WITH_MATS_GF",inputFILE,default=.false.)
+  call parse_input_variable(with_lcm,"WITH_LCM",inputFILE,default=.false.)
   call parse_input_variable(with_real_gf,"WITH_REAL_GF",inputFILE,default=.false.)
   call parse_input_variable(Nblock,"NBLOCK",inputFILE,default=4)
   if(MPImaster)call save_input_file(inputFILE)
@@ -80,113 +96,150 @@ program mf_anderson_bhz_2d
   if(MPImaster)write(*,*) "Solve homogeneous model with Nk="//str(Nk)
   allocate(Hk(Nso,Nso,Nk))
   call TB_build_model(Hk,hk_model,Nso,[Nx,Ny])
-  z2 = hk_to_spin_Chern(Hk,[Nx,Ny],spin=1)
-  if(MPImaster)write(*,*)"get spin Chern UP:",z2
-  z2 = hk_to_spin_Chern(Hk,[Nx,Ny],spin=2)
-  if(MPImaster)write(*,*)"get spin Chern DW:",z2
   z2 = hk_to_spin_Chern(Hk,[Nx,Ny])
   if(MPImaster)write(*,*)"get Z2:",z2
   if(MPImaster)write(*,*)""
   if(MPImaster)write(*,*)""
   deallocate(Hk)
 
+  post_processing=with_real_gf.OR.with_lcm
 
-  !####################################
-  !< Build up disorder:
-  if(MpiMaster)call start_timer()
-  call setup_Abhz()
-  pfile = "params_"//str(idum)
-  !
-  !Start MF HERE:
-  !>Read OR INIT MF params
-  allocate(params(Nlat,2),params_prev(Nlat,2))
-  if(MPImaster)then
-     do ilat=1,Nlat
-        params(ilat,:)= [p_field,p_field]   ![Tz,Sz]
+
+  inquire(file=str(idumFILE),exist=iexist)
+  if(iexist)then
+     Nidum = file_length(str(idumFILE))
+     allocate(list_idum(Nidum))
+     open(unit=100,file=str(idumFILE))
+     do ii=1,Nidum
+        read(100,*)id,list_idum(ii)
      enddo
-     inquire(file=str(pfile)//".restart",exist=iexist)
-     if(iexist)then
-        call read_array(str(pfile)//".restart",params)     
-        params(:,2)=params(:,2)+p_field
-     endif
+     close(100)
+  else
+     Nidum = 1
+     allocate(list_idum(Nidum))
+     list_idum = idum
   endif
-  call Bcast_MPI(MPI_COMM_WORLD,params)
-  !
-  !> Mean-Field cycle with linear mixing
-  if(MPImaster)call save_array(str(pfile)//".init",params)
-  converged=.false. ; iter=0
-  do while(.not.converged.AND.iter<maxiter)
-     iter=iter+1
-     call start_loop(iter,maxiter,"MF-loop")
+
+  call getcwd(here)
+
+
+  !####################################
+  do ii=1,Nidum
+     idum  = list_idum(ii)
+     dir   = "IDUM_"//str(idum)
+     pfile = "params_"//str(idum)
      !
-     !call symmetrize_params(params)
-     call solve_MF_bhz(iter,params)
-     if(MPImaster)then
-        write(*,*)"E(Tz), sd(Tz):",get_mean(Tzii),get_sd(Tzii)
-        write(*,*)"E(Sz), sd(Sz):",get_mean(Szii),get_sd(Szii)
-        call save_array("Ebhz.dat",Ev)
-        call save_array("tz_"//str(idum)//".dat",Tzii)
-        call save_array("sz_"//str(idum)//".dat",Szii)
-        call save_array("n1_"//str(idum)//".dat",N1ii)
-        call save_array("n2_"//str(idum)//".dat",N2ii)
-     endif
+     !Create IDUM directory and ENTER it     
+     if(MpiMaster)call system("mkdir -p "//str(dir))
+     if(MpiMaster)call system("cp -fv "//str(pfile)//".restart "//str(dir)//"/")
+     call chdir(str(dir))
      !
-     if(iter>1)params = wmix*params + (1d0-wmix)*params_prev
-     params_prev = params
+     !< Build up disorder:
+     if(MpiMaster)call start_timer()
+     call setup_Abhz()
      !
-     converged = check_convergence_local(params,it_error,1,maxiter) 
      !
-     call end_loop
-  end do
-  if(MPImaster)call save_array(str(pfile)//".restart",params)
-  !
-  call push_Bloch(H,Ev)
-  !
-  !Get topological info:
-  sp_chern(1) = single_point_spin_chern(spin=1)
-  sp_chern(2) = single_point_spin_chern(spin=2)
-  if(MPImaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
-  if(MPImaster)call save_array("spin_chern.dat",sp_chern)
-  if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
-  !
-  if(with_lcm)then
-     if(bhz_pbc)then
-        call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
-        if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+     if(post_processing)then
+        !< POST-PROCESSING: Get GF or LCM 
+        call post_process_MFbhz()
      else
-        call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
-        if(MpiMaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+        !>MF Solution:
+        !read params
+        allocate(params(Nlat,2),params_prev(Nlat,2))
+        if(MPImaster)then
+           do ilat=1,Nlat
+              params(ilat,:)= [p_field,p_field]   ![Tz,Sz]
+           enddo
+           inquire(file=str(pfile)//".restart",exist=iexist)
+           if(iexist)then
+              call read_array(str(pfile)//".restart",params)     
+              params(:,2)=params(:,2)+p_field
+           endif
+        endif
+        call Bcast_MPI(MPI_COMM_WORLD,params)
+        !
+        !> Mean-Field cycle with linear mixing
+        if(MPImaster)call save_array(str(pfile)//".init",params)
+        converged=.false. ; iter=0
+        do while(.not.converged.AND.iter<maxiter)
+           iter=iter+1
+           call start_loop(iter,maxiter,"MF-loop")
+           !
+           call solve_MF_Abhz(iter,params)           
+           !
+           if(iter>1)params = wmix*params + (1d0-wmix)*params_prev
+           params_prev = params
+           !
+           converged = check_convergence_local(params,it_error,1,maxiter) 
+           !
+           call end_loop
+        end do
+        if(MPImaster)call save_array(str(pfile)//".restart",params)
+        if(MpiMaster)call system("cp -fv "//str(pfile)//".restart "//str(here)//"/")
+        !
+        !
+        call push_Bloch(H,Ev)
+        !
+        !Get topological info:
+        sp_chern(1) = single_point_spin_chern(spin=1)
+        sp_chern(2) = single_point_spin_chern(spin=2)
+        if(MPImaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
+        if(MPImaster)call save_array("spin_chern.dat",sp_chern)
+        if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
      endif
-  endif
-  !< Get GF if required
-  if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
-  if(with_mats_gf)then
-     call get_gf(Gf,'mats')
-     if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
-  endif
-  !
-  if(with_real_gf)then
-     call get_gf(Gf,'real')
-     if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
-  endif
-  deallocate(Gf)
-  !
-  !< Free memory:
-  call free_Abhz()
-  if(MpiMaster)call stop_timer("IDUM: "//str(idum))
-  if(MPImaster)write(*,*)""
+     !
+     !< Free memory:
+     call chdir(str(here))
+     call free_Abhz()
+     deallocate(params,params_prev)
+     if(MpiMaster)call stop_timer("IDUM: "//str(idum))
+     if(MPImaster)write(*,*)""
+  enddo  
   !####################################
 
-
+  
   call end_parallel()
 
 
 contains
 
 
+  subroutine post_process_MFbhz()
+    !>Read MF params
+    allocate(params(Nlat,2),params_prev(Nlat,2))
+    if(MPImaster)then
+       inquire(file=str(pfile)//".restart",exist=iexist)
+       if(.not.iexist)stop "Can not read params.restart file: can not do post-processing"
+       call read_array(str(pfile)//".restart",params)     
+       params(:,2)=params(:,2)+p_field
+    endif
+    call Bcast_MPI(MPI_COMM_WORLD,params)
+    !
+    !Solve MF problem once with restart parameters
+    call solve_MF_Abhz(1,params)
+    call push_Bloch(H,Ev)
+    !
+    if(with_real_gf)then
+       if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
+       call get_gf(Gf,'real')
+       if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
+       if(allocated(Gf))deallocate(Gf)
+    endif
+    !
+    if(with_lcm)then
+       if(bhz_pbc)then
+          call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
+          if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+       else
+          call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
+          if(MpiMaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+       endif
+    endif
+  end subroutine post_process_MFbhz
 
 
-  subroutine solve_MF_bhz(iter,a)
+
+  subroutine solve_MF_Abhz(iter,a)
     integer                                 :: iter
     real(8),dimension(Nlat,2),intent(inout) :: a
     complex(8),dimension(Nlso,NLso)         :: fE
@@ -232,7 +285,14 @@ contains
     enddo
     a(:,1) = Tzii
     a(:,2) = Szii
-  end subroutine solve_MF_bhz
+    if(MPImaster)then
+       write(*,*)"E(Tz), sd(Tz):",get_mean(Tzii),get_sd(Tzii)
+       write(*,*)"E(Sz), sd(Sz):",get_mean(Szii),get_sd(Szii)
+       call save_array("Ebhz.dat",Ev)
+       call save_array("tz_"//str(idum)//".dat",Tzii)
+       call save_array("sz_"//str(idum)//".dat",Szii)
+    endif
+  end subroutine solve_MF_Abhz
 
 
   function mf_Hij_correction(a) result(HijMF)

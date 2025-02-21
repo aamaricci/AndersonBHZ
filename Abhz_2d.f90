@@ -29,11 +29,14 @@ program anderson_bhz_2d
   complex(8),dimension(:,:,:,:),allocatable :: Gf
   integer                                   :: ilat,iorb,ispin,io,i,ii,id
   logical                                   :: bool
+  logical                                   :: converged,iexist,ioidum,post_processing
+
 
   call init_parallel()  
   !  
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="inputABHZ.conf")
+  call parse_cmd_variable(idumFILE,"idumFILE",default="list_idum")
   call parse_input_variable(Nx,"Nx",inputFILE,default=10)
   call parse_input_variable(Wdis,"WDIS",inputFILE,default=0d0)
   call parse_input_variable(idum,"IDUM",inputFILE,default=1234567)
@@ -52,7 +55,6 @@ program anderson_bhz_2d
   call parse_input_variable(it_error,"IT_ERROR",inputFILE,default=1d-5)
   call parse_input_variable(maxiter,"MAXITER",inputFILE,default=100)
   call parse_input_variable(with_lcm,"WITH_lcm",inputFILE,default=.false.)
-  call parse_input_variable(with_mats_gf,"WITH_MATS_GF",inputFILE,default=.false.)
   call parse_input_variable(with_real_gf,"WITH_REAL_GF",inputFILE,default=.false.)
   call parse_input_variable(Nblock,"NBLOCK",inputFILE,default=4)
   if(MPImaster)call save_input_file(inputFILE)
@@ -94,10 +96,6 @@ program anderson_bhz_2d
   if(MPImaster)write(*,*) "Solve homogeneous model with Nk="//str(Nk)
   allocate(Hk(Nso,Nso,Nk))
   call TB_build_model(Hk,hk_model,Nso,[Nx,Ny])
-  z2 = hk_to_spin_Chern(Hk,[Nx,Ny],spin=1)
-  if(MPImaster)write(*,*)"get spin Chern UP:",z2
-  z2 = hk_to_spin_Chern(Hk,[Nx,Ny],spin=2)
-  if(MPImaster)write(*,*)"get spin Chern DW:",z2
   z2 = hk_to_spin_Chern(Hk,[Nx,Ny])
   if(MPImaster)write(*,*)"get Z2:",z2
   if(MPImaster)write(*,*)""
@@ -105,58 +103,77 @@ program anderson_bhz_2d
   deallocate(Hk)
 
 
+  post_processing=with_real_gf.OR.with_lcm
+
+
+  inquire(file=str(idumFILE),exist=iexist)
+  if(iexist)then
+     Nidum = file_length(str(idumFILE))
+     allocate(list_idum(Nidum))
+     open(unit=100,file=str(idumFILE))
+     do ii=1,Nidum
+        read(100,*)id,list_idum(ii)
+     enddo
+     close(100)
+  else
+     Nidum = 1
+     allocate(list_idum(Nidum))
+     list_idum = idum
+  endif
+
+  call getcwd(here)
 
 
 
   !####################################
-  !< Build up disorder:
-  if(MpiMaster)call start_timer()
-  call setup_Abhz()
-  !
-  !Solve the A_BHZ (non-interacting):
-  call solve_Anderson_bhz()
-  !
-  if(MpiMaster)then
-     call save_array("sz_"//str(idum)//".dat",Szii)
-     call save_array("tz_"//str(idum)//".dat",Tzii)
-     call save_array("n_l1s1_"//str(idum)//".dat",Nii(:,1,1))
-     call save_array("n_l1s2_"//str(idum)//".dat",Nii(:,1,2))
-     call save_array("n_l2s1_"//str(idum)//".dat",Nii(:,2,1))
-     call save_array("n_l2s2_"//str(idum)//".dat",Nii(:,2,2))
-  endif
-  call push_Bloch(H,Ev)
-  !Get topological info:
-  sp_chern(1) = single_point_spin_chern(spin=1)
-  sp_chern(2) = single_point_spin_chern(spin=2)
-  if(MpiMaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
-  if(MpiMaster)call save_array("spin_chern.dat",sp_chern)
-  if(MpiMaster)print*,"spin_Chern UP,DW:",sp_chern
-  !
-  if(with_lcm)then
-     if(bhz_pbc)then
-        call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
-        if(MpiMaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
-     else
-        call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
-        if(MpiMaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+  do ii=1,Nidum
+     idum  = list_idum(ii)
+     dir   = "IDUM_"//str(idum)
+     !
+     !Create IDUM directory and ENTER it     
+     if(MpiMaster)call system("mkdir -p "//str(dir))
+     call chdir(str(dir))
+     !
+     !< Build up disorder:
+     if(MpiMaster)call start_timer()
+     call setup_Abhz()
+     !
+     !Solve the A_BHZ (non-interacting):
+     call solve_Anderson_bhz()
+     !
+     call push_Bloch(H,Ev)
+     !
+     !Get topological info:
+     sp_chern(1) = single_point_spin_chern(spin=1)
+     sp_chern(2) = single_point_spin_chern(spin=2)
+     if(MpiMaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
+     if(MpiMaster)call save_array("spin_chern.dat",sp_chern)
+     if(MpiMaster)print*,"spin_Chern UP,DW:",sp_chern
+
+     if(with_real_gf)then
+        if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
+        call get_gf(Gf,'real')
+        if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
+        if(allocated(Gf))deallocate(Gf)
      endif
-  endif
-  !< Get GF if required
-  if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
-  if(with_mats_gf)then
-     call get_gf(Gf,'mats')
-     if(MpiMaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'mats',iprint=4,itar=.true.)
-  endif
-  !
-  if(with_real_gf)then
-     call get_gf(Gf,'real')
-     if(MpiMaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
-  endif
-  deallocate(Gf)
-  !< Free memory:
-  call free_Abhz()
-  if(MpiMaster)call stop_timer("IDUM: "//str(idum))
-  if(MPImaster)write(*,*)""
+     !
+     if(with_lcm)then
+        if(bhz_pbc)then
+           call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
+           if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+        else
+           call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
+           if(MpiMaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+        endif
+     endif
+     !
+     !
+     !< Free memory:
+     call chdir(str(here))
+     call free_Abhz()
+     if(MpiMaster)call stop_timer("IDUM: "//str(idum))
+     if(MPImaster)write(*,*)""
+  enddo
   !####################################
 
 
@@ -164,6 +181,8 @@ program anderson_bhz_2d
 
 
 contains
+
+
 
 
   subroutine solve_Anderson_BHZ()
@@ -204,6 +223,13 @@ contains
        Szii(ilat) = 0.5d0*sum(Nii(ilat,1,:)) - 0.5d0*sum(Nii(ilat,2,:)) !N_up - N_dw
        Tzii(ilat) = 0.5d0*sum(Nii(ilat,:,1)) - 0.5d0*sum(Nii(ilat,:,2)) !N_1  - N_2
     enddo
+    !
+    if(MpiMaster)then
+       write(*,*)"E(Tz), sd(Tz):",get_mean(Tzii),get_sd(Tzii)
+       write(*,*)"E(Sz), sd(Sz):",get_mean(Szii),get_sd(Szii)
+       call save_array("sz_"//str(idum)//".dat",Szii)
+       call save_array("tz_"//str(idum)//".dat",Tzii)
+    endif
     !
     if(MPImaster)call stop_timer()
   end subroutine solve_Anderson_BHZ

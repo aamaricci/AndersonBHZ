@@ -15,45 +15,54 @@ source ~/.functionsrc
 source ~/.osx_functionsrc
 
 HERE=`pwd`			# Working directory
-WLIST=list_wdis			# List of disorder strenght values
+WLIST=list_wdis.used		# List of disorder strenght values
+ldir |cut -d"S" -f2 |tee $WLIST
 
-rm z2VSwdis.dat EgapVSwdis.dat PSzPgapVSwdis.dat
 
+alias mgs="python -c 'import numpy as np; import sys;from numpy import *; file=sys.stdin;x=np.asarray(loadtxt(file,unpack=True));print(np.mean(x),np.std(x),np.exp(np.mean(np.log(np.abs(x)))))'"
 
 while read WDIS
 do
     WDIR=WDIS$WDIS
     if [ -d $WDIR ];then
 	cd $WDIR
+	pwd 
+	ldir|cut -dU -f2 |tee list_u.used
 
-	read ID IDUM < list_idum
-	cp IDUM_$IDUM/used.inputABHZ.conf .
-	$HOME/.bin/get_data_Abhz_2d 
-	echo $WDIR
-	#
-	echo "get Z2"
-	cat IDUM_*/z2.dat|mean  > tmp1
-	cat IDUM_*/z2.dat|gmean > tmp2
-	cat IDUM_*/z2.dat|sdev  > tmp3
-	paste tmp1 tmp3 tmp2 > z2.dat
-	#
-	echo "get Egap"	
-	cat IDUM_*/Egap.dat|mean  > tmp1
-	cat IDUM_*/Egap.dat|gmean > tmp2
-	cat IDUM_*/Egap.dat|sdev  > tmp3
-	paste tmp1 tmp3 tmp2 > Egap.dat
-	rm tmp*
-	#
-	echo "get PSzPgap"
-	cat IDUM_*/PSzPgap.dat|mean   > tmp1
-	cat IDUM_*/PSzPgap.dat|gmean  > tmp2
-	cat IDUM_*/PSzPgap.dat|sdev   > tmp3
-	paste tmp1 tmp3 tmp2 > PSzPgap.dat
-	#
-	rm tmp*
+	rm *mgs*.dat
+	
+	while read U;do
+	    UDIR=U$U
+	    if [ -d $UDIR ];then
+		cd $UDIR
+		ldir |cut -d_ -f2 |tee list_idum.used
+		pwd 
+		read IDUM < list_idum.used
+		cp IDUM_$IDUM/used.inputABHZ.conf .
+		$HOME/.bin/get_data_Abhz_2d idumFILE=list_idum.used
+		cd ..
+	    fi
+	done < list_u.used
+
+
+	echo "get Z2: $WDIS"
+	while read U;do
+	    UDIR=U$U
+	    cat $UDIR/IDUM_*/z2.dat|mgs |awk -v w=$WDIS -v u=$U '{ print u,$1,$2,$3,w}' 
+	done < list_u.used |tee z2VSuVSw.mgs
+
+	echo "get Egap: $WDIS"	
+	while read U;do
+	    UDIR=U$U
+	    cat $UDIR/IDUM_*/Egap.dat|mgs |awk -v w=$WDIS -v u=$U '{ print u,$1,$2,$3,w}' 
+	done < list_u.used |tee EgapVSuVSw.mgs
+
+	echo "get PSzPgap: $WDIS"
+	while read U;do
+	    UDIR=U$U
+	    cat $UDIR/IDUM_*/PSzPgap.dat|mgs |awk -v w=$WDIS -v u=$U '{ print u,$1,$2,$3,w}' 
+	done < list_u.used |tee PSzPgapVSuVSw.mgs
+		
 	cd $HERE
     fi
-    cat $WDIR/z2.dat|trans $WDIS \#1 \#2 >> z2VSwdis.dat
-    cat $WDIR/Egap.dat|trans $WDIS \#1 \#2 >> EgapVSwdis.dat
-    cat $WDIR/PSzPgap.dat|trans $WDIS \#1 \#2 >> PSzPgapVSwdis.dat
 done < $WLIST
