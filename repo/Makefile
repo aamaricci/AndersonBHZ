@@ -101,6 +101,12 @@ dmft:
 	$(FC) ${OBJS} $(FLAG) dmft_$(EXE).f90 -o $(DIREXE)/dmft_$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	$(call colorecho,"created dmft_$(EXE) in  $(DIREXE)", 1)
 
+wrap:FLAG:=${FFLAG} ${FPPMPI}
+wrap: ${OBJS}
+wrap:
+	@echo ""
+	$(FC) $(FLAG) -c wrap_mf_$(EXE).f90  ${GLOB_INC} ${GLOB_LIB}
+	$(F2PY) --backend distutils -c --verbose --f90exec=mpif90 --opt="$(FFLAG)" ${GLOB_INC} ${GLOB_LIB}  -m wrap_mf_Abhz_2d.f90 
 
 data:FLAG:=${FFLAG} ${FPPMPI}
 data:

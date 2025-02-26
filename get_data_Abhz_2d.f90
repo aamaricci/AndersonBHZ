@@ -154,51 +154,30 @@ contains
 
 
 
-  subroutine add_to(vec,vals)
-    real(8),dimension(:),allocatable,intent(inout) :: vec
-    real(8),dimension(:),intent(in)                :: vals
-    real(8)                                        :: val
-    real(8),dimension(:),allocatable               :: tmp
-    integer                                        :: i,n,m
-    !
-    m = size(vals)
-    if (allocated(vec)) then
-       n = size(vec)
-       allocate(tmp(n+m))
-       tmp(:n) = vec
-       call move_alloc(tmp,vec)
-       n = n + m
-    else
-       n = m
-       allocate(vec(n))
-    end if
-    !
-    !Put val as last m entries:
-    vec(n-m+1:n) = vals
-    !
-    if(allocated(tmp))deallocate(tmp)
-
-
-
-    ! do i=1,size(vals)
-    !    val = vals(i)
-    !    if (allocated(vec)) then
-    !       n = size(vec)
-    !       allocate(tmp(n+1))
-    !       tmp(:n) = vec
-    !       call move_alloc(tmp,vec)
-    !       n = n + 1
-    !    else
-    !       n = 1
-    !       allocate(vec(n))
-    !    end if
-    !    !
-    !    !Put val as last entry:
-    !    vec(n) = val
-    !    !
-    !    if(allocated(tmp))deallocate(tmp)
-    ! enddo
-  end subroutine add_to
+  ! subroutine add_to(vec,vals)
+  !   real(8),dimension(:),allocatable,intent(inout) :: vec
+  !   real(8),dimension(:),intent(in)                :: vals
+  !   real(8)                                        :: val
+  !   real(8),dimension(:),allocatable               :: tmp
+  !   integer                                        :: i,n,m
+  !   !
+  !   m = size(vals)
+  !   if (allocated(vec)) then
+  !      n = size(vec)
+  !      allocate(tmp(n+m))
+  !      tmp(:n) = vec
+  !      call move_alloc(tmp,vec)
+  !      n = n + m
+  !   else
+  !      n = m
+  !      allocate(vec(n))
+  !   end if
+  !   !
+  !   !Put val as last m entries:
+  !   vec(n-m+1:n) = vals
+  !   !
+  !   if(allocated(tmp))deallocate(tmp)
+  ! end subroutine add_to
 
 
 

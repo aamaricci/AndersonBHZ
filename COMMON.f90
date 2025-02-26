@@ -73,6 +73,47 @@ MODULE COMMON
 contains
 
 
+  function xcoord(ilat) result(ix)
+    integer :: ilat
+    integer :: ix
+    ix = mod(ilat,Nx);if(ix==0)ix=Nx
+  end function xcoord
+
+  function ycoord(ilat) result(iy)
+    integer :: ilat
+    integer :: iy
+    iy = (ilat-1)/Nx+1
+  end function ycoord
+
+  function afm_sign(ilat) result(afm)
+    integer :: ilat
+    integer :: Afm
+    integer :: ix,iy
+    ix  = xcoord(ilat)
+    iy  = ycoord(ilat)
+    Afm = (-1)**(ix+(iy-1))
+  end function afm_sign
+
+  function afm_vec() result(afm)
+    real(8),dimension(Nlat) :: Afm
+    integer                 :: ilat
+    do ilat=1,Nlat
+       Afm(ilat) = afm_sign(ilat)
+    enddo
+  end function Afm_Vec
+
+  function get_AFMmean(Szii) result(eSz)
+    real(8),dimension(Nlat) :: Szii
+    real(8)                 :: eSz
+    integer,dimension(Nlat) :: Afm
+    integer :: ilat
+    do ilat=1,Nlat
+       Afm(ilat) = afm_sign(ilat)
+    enddo
+    eSz = get_mean(Szii*Afm)
+  end function get_AFMmean
+
+
   !SETUP THE GAMMA MATRICES:
   subroutine setup_GammaMatrices()
     gamma0 = kron( pauli_sigma_0, pauli_tau_0)
@@ -196,8 +237,8 @@ contains
     if(allocated(Epsp))deallocate(Epsp)
   end subroutine free_Abhz
 
-    
-  
+
+
 
   !------------------------------------------------------------------
   ! Checks whether all the dimensions of the systems have been set
@@ -227,6 +268,29 @@ contains
 
 
 
+
+
+  subroutine read_list_idum(idumFILE,Nidum)
+    character(len=*) :: idumFILE
+    integer          :: Nidum,unit,id,ii
+    logical          :: iexist
+    inquire(file=str(idumFILE),exist=iexist)
+    if(iexist)then
+       Nidum = file_length(str(idumFILE))
+       allocate(list_idum(Nidum))
+       open(unit=free_unit(unit),file=str(idumFILE))
+       do ii=1,Nidum
+          read(unit,*)id,list_idum(ii)
+       enddo
+       close(unit)
+    else
+       Nidum = 1
+       allocate(list_idum(Nidum))
+       list_idum = idum
+    endif
+
+
+  end subroutine read_list_idum
 
   !------------------------------------------------------------------
   ! Push Bloch states and levels to internal arrays U, E
@@ -267,7 +331,7 @@ contains
     endif
   end subroutine check_Pgap
 
-  
+
 
 
   subroutine check_Egap(caller)
@@ -434,5 +498,36 @@ contains
     MPISize   = 1
 #endif
   end subroutine end_parallel
+
+
+
+
+  subroutine add_to(vec,vals)
+    real(8),dimension(:),allocatable,intent(inout) :: vec
+    real(8),dimension(:),intent(in)                :: vals
+    real(8)                                        :: val
+    real(8),dimension(:),allocatable               :: tmp
+    integer                                        :: i,n,m
+    !
+    m = size(vals)
+    if (allocated(vec)) then
+       n = size(vec)
+       allocate(tmp(n+m))
+       tmp(:n) = vec
+       call move_alloc(tmp,vec)
+       n = n + m
+    else
+       n = m
+       allocate(vec(n))
+    end if
+    !
+    !Put val as last m entries:
+    vec(n-m+1:n) = vals
+    !
+    if(allocated(tmp))deallocate(tmp)
+  end subroutine add_to
+
+
+
 
 END MODULE COMMON

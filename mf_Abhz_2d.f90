@@ -29,7 +29,7 @@ program mf_anderson_bhz_2d
   complex(8),dimension(:,:,:,:),allocatable :: Gf
   integer                                   :: ilat,iorb,ispin,io,ii,id
   logical                                   :: converged,iexist,ioidum,post_processing
-  integer                                   :: Iter,Nsuccess=2
+  integer                                   :: Iter,Nsuccess=2,ix,iy
   real(8),dimension(:,:),allocatable        :: params,params_prev
   character(len=100) :: pfile
 
@@ -83,6 +83,7 @@ program mf_anderson_bhz_2d
   Nso  = Nspin*Norb
   Nlso = Nlat*Nso
   Nocc = Nlso/2
+
 
   !SETUP THE GAMMA MATRICES:
   call setup_GammaMatrices()
@@ -148,12 +149,12 @@ program mf_anderson_bhz_2d
         allocate(params(Nlat,2),params_prev(Nlat,2))
         if(MPImaster)then
            do ilat=1,Nlat
-              params(ilat,:)= [p_field,p_field]   ![Tz,Sz]
+              params(ilat,:)= [p_field,p_field*afm_sign(ilat)]
            enddo
            inquire(file=str(pfile)//".restart",exist=iexist)
            if(iexist)then
               call read_array(str(pfile)//".restart",params)     
-              params(:,2)=params(:,2)+p_field
+              params(:,2)=params(:,2)+p_field*afm_sign(ilat)
            endif
         endif
         call Bcast_MPI(MPI_COMM_WORLD,params)
@@ -177,7 +178,6 @@ program mf_anderson_bhz_2d
         if(MPImaster)call save_array(str(pfile)//".restart",params)
         if(MpiMaster)call system("cp -fv "//str(pfile)//".restart "//str(here)//"/")
         !
-        !
         call push_Bloch(H,Ev)
         !
         !Get topological info:
@@ -185,6 +185,12 @@ program mf_anderson_bhz_2d
         sp_chern(2) = single_point_spin_chern(spin=2)
         if(MPImaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
         if(MPImaster)call save_array("spin_chern.dat",sp_chern)
+        if(MpiMaster)call save_array("Ebhz.dat",Ev)
+        if(MpiMaster)call save_array("tz.dat",Tzii)
+        if(MpiMaster)call save_array("sz.dat",Szii)
+        if(MpiMaster)call save_array("afm.dat",afm_vec())
+        if(MpiMaster)call save_array("Etz.dat",get_mean(Tzii))
+        if(MpiMaster)call save_array("Esz.dat",get_AFMmean(Szii))
         if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
      endif
      !
@@ -194,10 +200,10 @@ program mf_anderson_bhz_2d
      deallocate(params,params_prev)
      if(MpiMaster)call stop_timer("IDUM: "//str(idum))
      if(MPImaster)write(*,*)""
-  enddo  
+  enddo
   !####################################
 
-  
+
   call end_parallel()
 
 
@@ -211,7 +217,6 @@ contains
        inquire(file=str(pfile)//".restart",exist=iexist)
        if(.not.iexist)stop "Can not read params.restart file: can not do post-processing"
        call read_array(str(pfile)//".restart",params)     
-       params(:,2)=params(:,2)+p_field
     endif
     call Bcast_MPI(MPI_COMM_WORLD,params)
     !
@@ -245,7 +250,7 @@ contains
     complex(8),dimension(Nlso,NLso)         :: fE
     complex(8),dimension(Nlso,NLso)         :: Rho
     integer                                 :: io,jo,ilat,iorb,ispin
-    !
+    real(8)                                 :: eSz
     !
     if(.not.allocated(Nii))allocate(Nii(Nlat,Nspin,Norb))
     if(.not.allocated(Szii))allocate(Szii(Nlat))
@@ -286,13 +291,12 @@ contains
     a(:,1) = Tzii
     a(:,2) = Szii
     if(MPImaster)then
-       write(*,*)"E(Tz), sd(Tz):",get_mean(Tzii),get_sd(Tzii)
-       write(*,*)"E(Sz), sd(Sz):",get_mean(Szii),get_sd(Szii)
-       call save_array("Ebhz.dat",Ev)
-       call save_array("tz_"//str(idum)//".dat",Tzii)
-       call save_array("sz_"//str(idum)//".dat",Szii)
+       write(*,*)"E(Tz):",get_mean(Tzii)
+       write(*,*)"E(Sz):",get_AFMmean(Szii)
     endif
   end subroutine solve_MF_Abhz
+
+
 
 
   function mf_Hij_correction(a) result(HijMF)
