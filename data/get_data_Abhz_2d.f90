@@ -7,10 +7,10 @@ program analysis
   integer,parameter                     :: Norb=2,Nspin=2
   real(8)                               :: bT
   !Solution
-  real(8),dimension(:),allocatable      :: Edata,Tzdata,Szdata,Gapdata,PSzPdata
-  real(8),dimension(:),allocatable      :: Tzii,Szii
+  real(8),dimension(:),allocatable      :: Edata,Tzdata,Szdata,Gapdata,PSzPdata,Z2data
+  real(8),dimension(:),allocatable      :: Tzii,Szii,Z2ii
   integer                               :: io,i,id
-  type(pdf_kernel)                      :: pdf_E,pdf_Tz,pdf_Sz,pdf_Gap,pdf_PSzP
+  type(pdf_kernel)                      :: pdf_E,pdf_Tz,pdf_Sz,pdf_Gap,pdf_PSzP,pdf_Z2
 
   !  
   !Read input:
@@ -71,12 +71,13 @@ program analysis
   allocate(E(Nlso),Epsp(Nocc))
   allocate(Tzii(Nlat))
   allocate(Szii(Nlat))
+  allocate(Z2ii(1))
 
   Nidum = file_length(str(idumFILE))
   allocate(list_idum(Nidum))
   open(unit=100,file=str(idumFILE))
   do i=1,Nidum
-     read(100,*)list_idum(i)
+     read(100,*)id,list_idum(i)
   enddo
   close(100)
 
@@ -87,27 +88,36 @@ program analysis
   do i=1,Nidum
      idum = list_idum(i)
      dir="IDUM_"//str(list_idum(i))
+     print*,dir
      call chdir(str(dir))
 
      call read_array("E.dat",E)
      call read_array("Epszp.dat",Epsp)
-     call read_array("tz_"//str(idum)//".dat",Tzii)
-     call read_array("sz_"//str(idum)//".dat",Szii)
+     call read_array("tz.dat",Tzii)
+     call read_array("sz.dat",Szii)
+     call read_array("z2.dat",z2ii)
+     !
      call save_array("Egap.dat",E(Nocc+1)-E(Nocc))
      call save_array("PSzPgap.dat",Epsp(Nocc/2+1)-Epsp(Nocc/2))
 
+     ! Szii = Szii*afm_vec()
      call add_to(Edata,E)
      call add_to(PSzPdata,Epsp)
      call add_to(Tzdata,Tzii)
      call add_to(Szdata,Szii)
+     call add_to(Z2data,z2ii)
      call add_to(Gapdata,[E(Nocc+1)-E(Nocc)])
 
      call chdir(str(here))
   enddo
 
 
+  ! call save_array("Szdata.dat",Szdata)
+  call save_array("Etz.dat",get_mean(abs(Tzdata)))
+  call save_array("Esz.dat",get_mean(abs(Szdata)))
+  call save_array("Ez2.dat",get_mean(Z2data))
 
-  pdf_E = get_pdf_from_data(Edata,500,ieta)
+  pdf_E = get_pdf_from_data(Edata,500,ieta,ini=1d-5)
   call pdf_print(pdf_E,"pdf_E.dat")
 
   pdf_PSzP = get_pdf_from_data(PSzPdata,500,ieta)
@@ -117,14 +127,15 @@ program analysis
   pdf_Tz = get_pdf_from_data(-Tzdata,500,ini=1d-5,end=1d0)
   call pdf_print(pdf_Tz,"pdf_Tz.dat")  
 
-  pdf_Sz = get_pdf_from_data(Szdata,500)
+  pdf_Sz = get_pdf_from_data(Szdata,500,ini=-2d0,end=2d0)
   call pdf_print(pdf_Sz,"pdf_Sz.dat")  
 
   pdf_Gap = get_pdf_from_data(Gapdata,500,ini=1d-5)
   call pdf_print(pdf_Gap,"pdf_Egap.dat")  
 
 
-
+  pdf_Z2 = get_pdf_from_data(Z2data,500,ini=1d-5)
+  call pdf_print(pdf_Z2,"pdf_Z2.dat")  
 
 
 contains
@@ -152,32 +163,6 @@ contains
     call pdf_accumulate(pdf,data)
   end function get_pdf_from_data
 
-
-
-  ! subroutine add_to(vec,vals)
-  !   real(8),dimension(:),allocatable,intent(inout) :: vec
-  !   real(8),dimension(:),intent(in)                :: vals
-  !   real(8)                                        :: val
-  !   real(8),dimension(:),allocatable               :: tmp
-  !   integer                                        :: i,n,m
-  !   !
-  !   m = size(vals)
-  !   if (allocated(vec)) then
-  !      n = size(vec)
-  !      allocate(tmp(n+m))
-  !      tmp(:n) = vec
-  !      call move_alloc(tmp,vec)
-  !      n = n + m
-  !   else
-  !      n = m
-  !      allocate(vec(n))
-  !   end if
-  !   !
-  !   !Put val as last m entries:
-  !   vec(n-m+1:n) = vals
-  !   !
-  !   if(allocated(tmp))deallocate(tmp)
-  ! end subroutine add_to
 
 
 

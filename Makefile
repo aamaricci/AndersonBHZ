@@ -5,10 +5,15 @@ DIREXE=$(HOME)/.bin
 
 # LIBRARIES TO BE INCLUDED
 LIB_ED=edipack2
-
+LIB_INEQ=edipack2ineq
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
+ifdef LIB_INEQ
+GLOB_INC+=$(shell pkg-config --cflags ${LIB_INEQ})
+GLOB_LIB+=$(shell pkg-config --libs ${LIB_INEQ})
+endif
+
 
 ifdef LIB_ED
 GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
@@ -29,7 +34,7 @@ FPPMPI =-fpp -D_
 endif
 
 ifeq ($(PLAT),gnu)
-FFLAG = -ffree-line-length-none -w  -fallow-argument-mismatch -O3   -funroll-loops
+FFLAG = -ffree-line-length-none -w  -fallow-argument-mismatch -O2 
 OFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
 DFLAG = -w -O0 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
 AFLAG = -w -O0 -p -g  -fbacktrace -fwhole-file -fcheck=all -fbounds-check -fsanitize=address -fdebug-aux-vars -Wall -Waliasing -Wsurprising -Wampersand -Warray-bounds -Wc-binding-type -Wcharacter-truncation -Wconversion -Wdo-subscript -Wfunction-elimination -Wimplicit-interface -Wimplicit-procedure -Wintrinsic-shadow -Wintrinsics-std -Wno-align-commons -Wno-overwrite-recursive -Wno-tabs -Wreal-q-constant -Wunderflow -Wunused-parameter -Wrealloc-lhs -Wrealloc-lhs-all -Wfrontend-loop-interchange -Wtarget-lifetime
@@ -81,6 +86,7 @@ compile: tb mf dmft
 	@echo ""
 
 tb:FLAG:=${FFLAG} ${FPPMPI}
+tb: ${OBJS}
 tb:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 3)
@@ -88,6 +94,7 @@ tb:
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
 mf:FLAG:=${FFLAG} ${FPPMPI}
+mf: ${OBJS}
 mf:
 	@echo ""
 	$(call colorecho,"compiling mf_$(EXE).f90 ", 3)
@@ -95,6 +102,7 @@ mf:
 	$(call colorecho,"created mf_$(EXE) in  $(DIREXE)", 1)
 
 dmft:FLAG:=${FFLAG} ${FPPMPI}
+dmft: ${OBJS}
 dmft:
 	@echo ""
 	$(call colorecho,"compiling dmft_$(EXE).f90 ", 3)
@@ -102,18 +110,21 @@ dmft:
 	$(call colorecho,"created dmft_$(EXE) in  $(DIREXE)", 1)
 
 
+
+
+
 data:FLAG:=${FFLAG} ${FPPMPI}
 data:
 	@echo ""
 	$(call colorecho,"compiling data_analysis codes", 3)
-	$(FC) ${OBJS} $(FLAG) get_data_$(EXE).f90 -o $(DIREXE)/get_data_$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(FC) ${OBJS} $(FLAG) get_gf_$(EXE).f90 -o $(DIREXE)/get_gf_$(EXE) ${GLOB_INC} ${GLOB_LIB}	
+	$(FC) ${OBJS} $(FLAG) data/get_data_$(EXE).f90 -o $(DIREXE)/get_data_$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG) data/get_gf_$(EXE).f90 -o $(DIREXE)/get_gf_$(EXE) ${GLOB_INC} ${GLOB_LIB}	
 	$(call colorecho,"created data analysis codes in  $(DIREXE)", 1)
 
 clean: 
 	@echo "Cleaning:"
 	@rm -f *.mod *.o *~
-	@rm -fv  $(DIREXE)/*$(EXE)
+#	@rm -fv  $(DIREXE)/*$(EXE)
 
 .f90.o:	
 	$(FC) $(FLAG) -c $< ${GLOB_INC}

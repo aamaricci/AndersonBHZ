@@ -2,6 +2,7 @@ program ed_bhz_2d_edge
   USE COMMON
   USE LCM_SQUARE
   USE EDIPACK2
+  USE EDIPACK2INEQ
   implicit none
   real(8)                                     :: z2,sp_chern(2)
   integer                                     :: iloop

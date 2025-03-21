@@ -20,7 +20,7 @@ program mf_anderson_bhz_2d
   implicit none
   integer,parameter                         :: Norb=2,Nspin=2
   real(8)                                   :: Uloc,Jh
-  real(8)                                   :: z2,sp_chern(2),bT
+  real(8)                                   :: z2,sp_chern(2),bT,error,error_prev
   !Solution
   real(8),dimension(:),allocatable          :: Ev
   complex(8),dimension(:,:),allocatable     :: H
@@ -124,6 +124,7 @@ program mf_anderson_bhz_2d
   call getcwd(here)
 
 
+
   !####################################
   do ii=1,Nidum
      idum  = list_idum(ii)
@@ -162,6 +163,8 @@ program mf_anderson_bhz_2d
         !> Mean-Field cycle with linear mixing
         if(MPImaster)call save_array(str(pfile)//".init",params)
         converged=.false. ; iter=0
+        error=1d0
+        error_prev=error
         do while(.not.converged.AND.iter<maxiter)
            iter=iter+1
            call start_loop(iter,maxiter,"MF-loop")
@@ -171,8 +174,12 @@ program mf_anderson_bhz_2d
            if(iter>1)params = wmix*params + (1d0-wmix)*params_prev
            params_prev = params
            !
-           converged = check_convergence_local(params,it_error,1,maxiter) 
-           !
+           converged = check_convergence_local(params,it_error,1,maxiter,oerr=error)
+           if(error > error_prev)then
+              wmix=wmix*(0.95d0) !decrease wmix by 5%
+              if(MPImaster)write(*,*)"Reduced wmix:",wmix
+           endif
+           error_prev=error
            call end_loop
         end do
         if(MPImaster)call save_array(str(pfile)//".restart",params)
@@ -210,40 +217,6 @@ program mf_anderson_bhz_2d
 contains
 
 
-  subroutine post_process_MFbhz()
-    !>Read MF params
-    allocate(params(Nlat,2),params_prev(Nlat,2))
-    if(MPImaster)then
-       inquire(file=str(pfile)//".restart",exist=iexist)
-       if(.not.iexist)stop "Can not read params.restart file: can not do post-processing"
-       call read_array(str(pfile)//".restart",params)     
-    endif
-    call Bcast_MPI(MPI_COMM_WORLD,params)
-    !
-    !Solve MF problem once with restart parameters
-    call solve_MF_Abhz(1,params)
-    call push_Bloch(H,Ev)
-    !
-    if(with_real_gf)then
-       if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
-       call get_gf(Gf,'real')
-       if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
-       if(allocated(Gf))deallocate(Gf)
-    endif
-    !
-    if(with_lcm)then
-       if(bhz_pbc)then
-          call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
-          if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
-       else
-          call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
-          if(MpiMaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
-       endif
-    endif
-  end subroutine post_process_MFbhz
-
-
-
   subroutine solve_MF_Abhz(iter,a)
     integer                                 :: iter
     real(8),dimension(Nlat,2),intent(inout) :: a
@@ -275,7 +248,6 @@ contains
     !Actual solution:
     fE  = one*diag(fermi(Ev,1d0/temp))
     Rho = ( H.mx.fE ).mx.conjg(transpose(H))
-    ! Rho = matmul(H , matmul(fE, conjg(transpose(H))) )
     !
     !Get observables:
     do concurrent(ilat=1:Nlat,ispin=1:Nspin,iorb=1:Norb)
@@ -337,6 +309,40 @@ contains
        a(ilat,:) = a(1,:)
     enddo
   end subroutine symmetrize_params
+
+
+
+  subroutine post_process_MFbhz()
+    !>Read MF params
+    allocate(params(Nlat,2),params_prev(Nlat,2))
+    if(MPImaster)then
+       inquire(file=str(pfile)//".restart",exist=iexist)
+       if(.not.iexist)stop "Can not read params.restart file: can not do post-processing"
+       call read_array(str(pfile)//".restart",params)     
+    endif
+    call Bcast_MPI(MPI_COMM_WORLD,params)
+    !
+    !Solve MF problem once with restart parameters
+    call solve_MF_Abhz(1,params)
+    call push_Bloch(H,Ev)
+    !
+    if(with_real_gf)then
+       if(.not.allocated(Gf))allocate(Gf(Nlat,Nso,Nso,Lfreq))
+       call get_gf(Gf,'real')
+       if(MPImaster)call write_gf(gf_reshape(Gf,Nspin,Norb,Nlat),"Gloc",'real',iprint=4,itar=.true.)
+       if(allocated(Gf))deallocate(Gf)
+    endif
+    !
+    if(with_lcm)then
+       if(bhz_pbc)then
+          call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
+          if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+       else
+          call obc_local_spin_chern_marker(spin=1,lcm=LsCM)
+          if(MpiMaster)call splot3d("OBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
+       endif
+    endif
+  end subroutine post_process_MFbhz
 
 
 
