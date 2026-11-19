@@ -3,43 +3,36 @@ FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
 
-# LIBRARIES TO BE INCLUDED
-LIB_ED=edipack2
-LIB_INEQ=edipack2ineq
-
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-ifdef LIB_INEQ
-GLOB_INC+=$(shell pkg-config --cflags ${LIB_INEQ})
-GLOB_LIB+=$(shell pkg-config --libs ${LIB_INEQ})
+foo_ := $(shell pkg-config --exists scifor && echo yes || echo no)
+ifneq ($(foo_),yes)
+$(error ERROR: scifor is not installed or loaded)
+endif
+foo_ := $(shell pkg-config --exists dmft_tools && echo yes || echo no)
+ifneq ($(foo_),yes)
+$(error ERROR: dmft_tools is not installed or loaded)
+endif
+foo_ := $(shell pkg-config --exists edipack && echo yes || echo no)
+ifneq ($(foo_),yes)
+$(error ERROR: edipack is not installed or loaded)
 endif
 
-
-ifdef LIB_ED
-GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
-GLOB_LIB+=$(shell pkg-config --libs ${LIB_ED})
-endif
-
-
-GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)
-GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)
+GLOB_INC+=$(shell pkg-config --cflags edipack dmft_tools scifor)
+GLOB_LIB+=$(shell pkg-config --libs   edipack dmft_tools scifor)
 
 
 ifeq ($(PLAT),intel)
-FFLAG=-O3 -ftz	
+FFLAG=-O3 -ftz
 DFLAG=-p -O0 -g
 AFLAG=-p -O0 -g -fpe0 -warn -warn errors -debug extended -traceback -check all,noarg_temp_created
-FPPSERIAL =-fpp -D_
-FPPMPI =-fpp -D_	
 endif
 
 ifeq ($(PLAT),gnu)
-FFLAG = -ffree-line-length-none -w  -fallow-argument-mismatch -O2 
+FFLAG = -ffree-line-length-none -w  -fallow-argument-mismatch -O2
 OFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
 DFLAG = -w -O0 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
 AFLAG = -w -O0 -p -g  -fbacktrace -fwhole-file -fcheck=all -fbounds-check -fsanitize=address -fdebug-aux-vars -Wall -Waliasing -Wsurprising -Wampersand -Warray-bounds -Wc-binding-type -Wcharacter-truncation -Wconversion -Wdo-subscript -Wfunction-elimination -Wimplicit-interface -Wimplicit-procedure -Wintrinsic-shadow -Wintrinsics-std -Wno-align-commons -Wno-overwrite-recursive -Wno-tabs -Wreal-q-constant -Wunderflow -Wunused-parameter -Wrealloc-lhs -Wrealloc-lhs-all -Wfrontend-loop-interchange -Wtarget-lifetime
-FPPSERIAL= -cpp -D_
-FPPMPI= -cpp -D_SCALAPACK
 endif
 
 
@@ -58,7 +51,7 @@ F2PY=f2py
 ##$ Extends the implicit support of the Makefile to .f90 files
 .SUFFIXES: .f90
 
-define colorecho	
+define colorecho
 	@tput setaf $2
 	@tput bold
 	@echo $1
@@ -67,12 +60,12 @@ endef
 
 
 
-all: FLAG:=${FFLAG} ${FPPMPI}
+all: FLAG:=${FFLAG}
 all: ${OBJS}
 all: compile
 
 
-debug: FLAG:=${DFLAG} ${FPPMPI}
+debug: FLAG:=${DFLAG}
 debug: ${OBJS}
 debug: compile
 
@@ -85,7 +78,7 @@ compile: tb mf dmft
 	@echo "Done"
 	@echo ""
 
-tb:FLAG:=${FFLAG} ${FPPMPI}
+tb:FLAG:=${FFLAG}
 tb: ${OBJS}
 tb:
 	@echo ""
@@ -93,7 +86,7 @@ tb:
 	$(FC) ${OBJS} $(FLAG)     $(EXE).f90 -o    $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
-mf:FLAG:=${FFLAG} ${FPPMPI}
+mf:FLAG:=${FFLAG}
 mf: ${OBJS}
 mf:
 	@echo ""
@@ -101,7 +94,7 @@ mf:
 	$(FC) ${OBJS} $(FLAG) mf_$(EXE).f90 -o $(DIREXE)/mf_$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	$(call colorecho,"created mf_$(EXE) in  $(DIREXE)", 1)
 
-dmft:FLAG:=${FFLAG} ${FPPMPI}
+dmft:FLAG:=${FFLAG}
 dmft: ${OBJS}
 dmft:
 	@echo ""
@@ -113,20 +106,20 @@ dmft:
 
 
 
-data:FLAG:=${FFLAG} ${FPPMPI}
-data:
+data:FLAG:=${FFLAG}
+data: ${OBJS}
 	@echo ""
 	$(call colorecho,"compiling data_analysis codes", 3)
-	$(FC) ${OBJS} $(FLAG) data/get_data_$(EXE).f90 -o $(DIREXE)/get_data_$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(FC) ${OBJS} $(FLAG) data/get_gf_$(EXE).f90 -o $(DIREXE)/get_gf_$(EXE) ${GLOB_INC} ${GLOB_LIB}	
+	$(FC) ${OBJS} $(FLAG) post-process/get_data_$(EXE).f90 -o $(DIREXE)/get_data_$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJS} $(FLAG) post-process/get_gf_$(EXE).f90 -o $(DIREXE)/get_gf_$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	$(call colorecho,"created data analysis codes in  $(DIREXE)", 1)
 
-clean: 
+clean:
 	@echo "Cleaning:"
 	@rm -f *.mod *.o *~
 #	@rm -fv  $(DIREXE)/*$(EXE)
 
-.f90.o:	
+.f90.o:
 	$(FC) $(FLAG) -c $< ${GLOB_INC}
 
 version:

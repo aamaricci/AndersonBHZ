@@ -14,7 +14,7 @@ contains
 
 
   !####################################################################
-  !                 H(k) ==>   C   and  C_\sigma 
+  !                 H(k) ==>   C   and  C_\sigma
   !####################################################################
   !+------------------------------------------------------------------+
   !get Chern number of H(k) using discretized Berry flux in the BZ
@@ -60,14 +60,14 @@ contains
     allocate(Gmat(4,Nocc,Nocc))
     ik=0
     do ikx=1,Nkx
-       do iky=1,Nky
-          ik=ik+1
-          Eigvec = Hk(:,:,ik)          
-          call eigh(Eigvec,Eigval)
-          do iocc=1,Nocc
-             BlochStates(ikx,iky,iocc,:) = Eigvec(:,iocc)
-          enddo
-       enddo
+      do iky=1,Nky
+        ik=ik+1
+        Eigvec = Hk(:,:,ik)
+        call eigh(Eigvec,Eigval)
+        do iocc=1,Nocc
+          BlochStates(ikx,iky,iocc,:) = Eigvec(:,iocc)
+        enddo
+      enddo
     enddo
     deallocate(Eigvec,Eigval)
     !
@@ -75,46 +75,44 @@ contains
     !2. Evaluate the Berry Curvature
     chern=0d0
     do ikx= 1, Nkx
-       ikxP = modulo(ikx,Nkx) + 1
-       do iky= 1, Nky
-          ikyP = modulo(iky,Nky) + 1
-          !
-          if(Nocc==1)then
-             Ulink(1) = dot_product(BlochStates(ikx,iky,1,:)  , BlochStates(ikx,ikyP,1,:))
-             Ulink(2) = dot_product(BlochStates(ikx,ikyP,1,:) , BlochStates(ikxP,ikyP,1,:))
-             Ulink(3) = dot_product(BlochStates(ikxP,ikyP,1,:), BlochStates(ikxP,iky,1,:))
-             Ulink(4) = dot_product(BlochStates(ikxP,iky,1,:) , BlochStates(ikx,iky,1,:))
-          else
-             do concurrent(i=1:Nocc,j=1:Nocc)
-                gmat(1,i,j) = dot_product(BlochStates(ikx,iky,i,:)  , BlochStates(ikx,ikyP,j,:))
-                gmat(2,i,j) = dot_product(BlochStates(ikx,ikyP,i,:) , BlochStates(ikxP,ikyP,j,:))
-                gmat(3,i,j) = dot_product(BlochStates(ikxP,ikyP,i,:), BlochStates(ikxP,iky,j,:))
-                gmat(4,i,j) = dot_product(BlochStates(ikxP,iky,i,:) , BlochStates(ikx,iky,j,:))
-             enddo
-             Ulink(1) = det(gmat(1,:,:))
-             Ulink(2) = det(gmat(2,:,:))
-             Ulink(3) = det(gmat(3,:,:))
-             Ulink(4) = det(gmat(4,:,:))
-          endif
-          !
-          berry_phase             = dimag(zlog( product(Ulink(:))  ))
-          chern                   = chern + berry_phase/pi2
-          BerryCurvature(ikx,iky) = berry_phase!*one_over_area=Nkx/pi2*Nkx/pi2
-          !
-       enddo
+      ikxP = modulo(ikx,Nkx) + 1
+      do iky= 1, Nky
+        ikyP = modulo(iky,Nky) + 1
+        !
+        if(Nocc==1)then
+          Ulink(1) = dot_product(BlochStates(ikx,iky,1,:)  , BlochStates(ikx,ikyP,1,:))
+          Ulink(2) = dot_product(BlochStates(ikx,ikyP,1,:) , BlochStates(ikxP,ikyP,1,:))
+          Ulink(3) = dot_product(BlochStates(ikxP,ikyP,1,:), BlochStates(ikxP,iky,1,:))
+          Ulink(4) = dot_product(BlochStates(ikxP,iky,1,:) , BlochStates(ikx,iky,1,:))
+        else
+          do concurrent(i=1:Nocc,j=1:Nocc)
+            gmat(1,i,j) = dot_product(BlochStates(ikx,iky,i,:)  , BlochStates(ikx,ikyP,j,:))
+            gmat(2,i,j) = dot_product(BlochStates(ikx,ikyP,i,:) , BlochStates(ikxP,ikyP,j,:))
+            gmat(3,i,j) = dot_product(BlochStates(ikxP,ikyP,i,:), BlochStates(ikxP,iky,j,:))
+            gmat(4,i,j) = dot_product(BlochStates(ikxP,iky,i,:) , BlochStates(ikx,iky,j,:))
+          enddo
+          Ulink(1) = det(gmat(1,:,:))
+          Ulink(2) = det(gmat(2,:,:))
+          Ulink(3) = det(gmat(3,:,:))
+          Ulink(4) = det(gmat(4,:,:))
+        endif
+        !
+        berry_phase             = dimag(zlog( product(Ulink(:))  ))
+        chern                   = chern + berry_phase/pi2
+        BerryCurvature(ikx,iky) = berry_phase!*one_over_area=Nkx/pi2*Nkx/pi2
+        !
+      enddo
     enddo
     !
-    if(MPImaster)then
-       open(unit=free_unit(unit),file="Hk_to_Chern.dat")
-       write(unit,*)chern
-       close(unit)
-       !
-       if(bool)&
-            call splot3d("Berry_Curvature.dat",&
-            linspace(0d0,pi2,Nkx,iend=.false.),&
-            linspace(0d0,pi2,Nky,iend=.false.),&
-            BerryCurvature(:Nkx,:Nky))
-    endif
+    open(unit=free_unit(unit),file="Hk_to_Chern.dat")
+    write(unit,*)chern
+    close(unit)
+    !
+    if(bool)&
+      call splot3d("Berry_Curvature.dat",&
+      linspace(0d0,pi2,Nkx,iend=.false.),&
+      linspace(0d0,pi2,Nky,iend=.false.),&
+      BerryCurvature(:Nkx,:Nky))
   end function hk_to_Chern
 
   !+------------------------------------------------------------------+
@@ -155,22 +153,22 @@ contains
     !1. Get the Bloch states from H(:,:,k)
     allocate(Eigvec(Nso,Nso))
     allocate(Eigval(Nso))
-    allocate(BlochStates(Nkx,Nky,Nocc,Nso)) 
+    allocate(BlochStates(Nkx,Nky,Nocc,Nso))
     if(present(berry))then
-       if(allocated(berry))deallocate(berry)
-       allocate(berry(Nkx,Nky))
+      if(allocated(berry))deallocate(berry)
+      allocate(berry(Nkx,Nky))
     endif
     !
     ik=0
     do ikx=1,Nkx
-       do iky=1,Nky
-          ik=ik+1
-          Eigvec = Hk(:,:,ik)
-          call eigh(Eigvec,Eigval)
-          do iocc=1,Nocc
-             BlochStates(ikx,iky,iocc,:) = Eigvec(:,iocc)
-          enddo
-       enddo
+      do iky=1,Nky
+        ik=ik+1
+        Eigvec = Hk(:,:,ik)
+        call eigh(Eigvec,Eigval)
+        do iocc=1,Nocc
+          BlochStates(ikx,iky,iocc,:) = Eigvec(:,iocc)
+        enddo
+      enddo
     enddo
     deallocate(Eigvec,Eigval)
     !
@@ -178,49 +176,45 @@ contains
     !2. Evaluate the Berry Curvature
     chern=0d0
     do ikx= 1, Nkx
-       ikxP = modulo(ikx,Nkx) + 1
-       do iky= 1, Nky
-          ikyP = modulo(iky,Nky) + 1
-          !
-          select case(spin_)
-          case default;stop "hk_to_spin_Chern error: spin != {0,1,2}: 0=Z2/Both, 1=UP, 2=DW"
-          case(0)
-             do ispin=1,2
-                Ulink(1)    = dot_product(BlochStates(ikx,iky,ispin,:)  , BlochStates(ikx,ikyP,ispin,:))
-                Ulink(2)    = dot_product(BlochStates(ikx,ikyP,ispin,:) , BlochStates(ikxP,ikyP,ispin,:))
-                Ulink(3)    = dot_product(BlochStates(ikxP,ikyP,ispin,:), BlochStates(ikxP,iky,ispin,:))
-                Ulink(4)    = dot_product(BlochStates(ikxP,iky,ispin,:) , BlochStates(ikx,iky,ispin,:))
-                berry_phase = -dimag(zlog( product(Ulink(:))  ))/pi2
-                chern(ispin)= chern(ispin) + berry_phase
-             enddo
-             sp_chern = 0.5d0*(chern(1)-chern(2))
-             if(MPImaster)then
-                open(unit=free_unit(unit),file="Hk_to_z2.dat")
-                write(unit,*)sp_chern
-                close(unit)
-             endif
-          case(1,2)
-             ispin=spin_
-             Ulink(1)    = dot_product(BlochStates(ikx,iky,ispin,:)  , BlochStates(ikx,ikyP,ispin,:))
-             Ulink(2)    = dot_product(BlochStates(ikx,ikyP,ispin,:) , BlochStates(ikxP,ikyP,ispin,:))
-             Ulink(3)    = dot_product(BlochStates(ikxP,ikyP,ispin,:), BlochStates(ikxP,iky,ispin,:))
-             Ulink(4)    = dot_product(BlochStates(ikxP,iky,ispin,:) , BlochStates(ikx,iky,ispin,:))
-             berry_phase = dimag(zlog( product(Ulink(:))  ))/pi2
-             chern(ispin)= chern(ispin) + berry_phase
-             if(present(berry))&
-                  berry(ikx,iky) = berry_phase!*one_over_area=Nkx/pi2*Nkx/pi2
-             sp_chern = chern(ispin)
-             if(MPImaster)then
-                open(unit=free_unit(unit),file="Hk_to_spin_Chern_s"//str(spin_)//".dat")
-                write(unit,*)sp_chern
-                close(unit)
-             endif
-          end select
-       enddo
+      ikxP = modulo(ikx,Nkx) + 1
+      do iky= 1, Nky
+        ikyP = modulo(iky,Nky) + 1
+        !
+        select case(spin_)
+         case default;stop "hk_to_spin_Chern error: spin != {0,1,2}: 0=Z2/Both, 1=UP, 2=DW"
+         case(0)
+          do ispin=1,2
+            Ulink(1)    = dot_product(BlochStates(ikx,iky,ispin,:)  , BlochStates(ikx,ikyP,ispin,:))
+            Ulink(2)    = dot_product(BlochStates(ikx,ikyP,ispin,:) , BlochStates(ikxP,ikyP,ispin,:))
+            Ulink(3)    = dot_product(BlochStates(ikxP,ikyP,ispin,:), BlochStates(ikxP,iky,ispin,:))
+            Ulink(4)    = dot_product(BlochStates(ikxP,iky,ispin,:) , BlochStates(ikx,iky,ispin,:))
+            berry_phase = -dimag(zlog( product(Ulink(:))  ))/pi2
+            chern(ispin)= chern(ispin) + berry_phase
+          enddo
+          sp_chern = 0.5d0*(chern(1)-chern(2))
+          open(unit=free_unit(unit),file="Hk_to_z2.dat")
+          write(unit,*)sp_chern
+          close(unit)
+         case(1,2)
+          ispin=spin_
+          Ulink(1)    = dot_product(BlochStates(ikx,iky,ispin,:)  , BlochStates(ikx,ikyP,ispin,:))
+          Ulink(2)    = dot_product(BlochStates(ikx,ikyP,ispin,:) , BlochStates(ikxP,ikyP,ispin,:))
+          Ulink(3)    = dot_product(BlochStates(ikxP,ikyP,ispin,:), BlochStates(ikxP,iky,ispin,:))
+          Ulink(4)    = dot_product(BlochStates(ikxP,iky,ispin,:) , BlochStates(ikx,iky,ispin,:))
+          berry_phase = dimag(zlog( product(Ulink(:))  ))/pi2
+          chern(ispin)= chern(ispin) + berry_phase
+          if(present(berry))&
+            berry(ikx,iky) = berry_phase!*one_over_area=Nkx/pi2*Nkx/pi2
+          sp_chern = chern(ispin)
+          open(unit=free_unit(unit),file="Hk_to_spin_Chern_s"//str(spin_)//".dat")
+          write(unit,*)sp_chern
+          close(unit)
+        end select
+      enddo
     enddo
     !
     !
-  end function hk_to_spin_chern
+  end function hk_to_spin_Chern
 
 
 
@@ -254,7 +248,7 @@ contains
     !
     call TB_get_bk(b1,b2)
     !
-    if(MPImaster)call start_timer("single_point_chern")
+    call start_timer("single_point_chern")
     !
     Ub1 = periodic_gauge(U,b1)
     Ub2 = periodic_gauge(U,b2)
@@ -264,20 +258,20 @@ contains
     !
     sum_chern = zero
     if(to_lower(method_)=='s')then
-       Umb1 = periodic_gauge(U,-b1)
-       Umb2 = periodic_gauge(U,-b2)
-       Vmb1 = dual_state(U,Umb1)
-       Vmb2 = dual_state(U,Umb2)
-       do i=1,Nocc
-          sum_chern = sum_chern + dot_product((Vmb1(:,i)-Vb1(:,i)),(Vmb2(:,i)-Vb2(:,i)))/4d0
-       enddo
+      Umb1 = periodic_gauge(U,-b1)
+      Umb2 = periodic_gauge(U,-b2)
+      Vmb1 = dual_state(U,Umb1)
+      Vmb2 = dual_state(U,Umb2)
+      do i=1,Nocc
+        sum_chern = sum_chern + dot_product((Vmb1(:,i)-Vb1(:,i)),(Vmb2(:,i)-Vb2(:,i)))/4d0
+      enddo
     else
-       do i=1,Nocc
-          sum_chern = sum_chern + dot_product(Vb1(:,i),Vb2(:,i))
-       enddo
+      do i=1,Nocc
+        sum_chern = sum_chern + dot_product(Vb1(:,i),Vb2(:,i))
+      enddo
     end if
     !
-    if(MPImaster)call stop_timer()
+    call stop_timer()
     !
     sp_chern = dimag(sum_chern)/pi
     !
@@ -316,7 +310,7 @@ contains
     !
     if(.not.allocated(PSzP))call eigh_PSzP()
     !
-    if(MPImaster)call start_timer("single_point_spinChern_s"//str(spin))
+    call start_timer("single_point_spinChern_s"//str(spin))
     !
     !|q_i0> = sum_m=1,Nocc q_i(m)|u_m0>
     ! q     = U x P_{a'b'} [Nlso,Nocc]
@@ -331,20 +325,20 @@ contains
     !
     sum_chern = zero
     if(to_lower(method_)=='s')then
-       Qmb1 = periodic_gauge(Q,-b1)
-       Qmb2 = periodic_gauge(Q,-b2)
-       Vmb1 = dual_state(Q,Qmb1,spin)
-       Vmb2 = dual_state(Q,Qmb2,spin)
-       do i=1,N
-          sum_chern = sum_chern + dot_product((Vmb1(:,i)-Vb1(:,i)),(Vmb2(:,i)-Vb2(:,i)))/4d0
-       enddo
+      Qmb1 = periodic_gauge(Q,-b1)
+      Qmb2 = periodic_gauge(Q,-b2)
+      Vmb1 = dual_state(Q,Qmb1,spin)
+      Vmb2 = dual_state(Q,Qmb2,spin)
+      do i=1,N
+        sum_chern = sum_chern + dot_product((Vmb1(:,i)-Vb1(:,i)),(Vmb2(:,i)-Vb2(:,i)))/4d0
+      enddo
     else
-       do i=1,N
-          sum_chern = sum_chern + dot_product(Vb1(:,i),Vb2(:,i))
-       enddo
+      do i=1,N
+        sum_chern = sum_chern + dot_product(Vb1(:,i),Vb2(:,i))
+      enddo
     end if
     !
-    if(MPImaster)call stop_timer()
+    call stop_timer()
     !
     sp_chern = dimag(sum_chern)/pi
     !
@@ -377,7 +371,7 @@ contains
     allocate(Xcomm_P(Nlso,Nlso))
     allocate(Ycomm_P(Nlso,Nlso))
     !
-    if(MPImaster)call start_timer("obc_local_ChernMarker")
+    call start_timer("obc_local_ChernMarker")
     !
     P = ( U(:,1:Nocc).mx.transpose(conjg(U(:,1:Nocc))) )
     !
@@ -386,7 +380,7 @@ contains
     Xcomm_P = (diag(one*R(:,1)).mx.P) - (P.mx.diag(one*R(:,1)))
     Ycomm_P = (diag(one*R(:,2)).mx.P) - (P.mx.diag(one*R(:,2)))
     P       = -4*pi*dimag(((P.mx.Xcomm_P).mx.Ycomm_P))
-    !    
+    !
     allocate(Q4(Nso,Nso,Nlat,Nlat))
     Q4 = reshape_rank2_to_rank4(P,Nso,Nlat)
     !
@@ -394,12 +388,12 @@ contains
     allocate(lcm(Nx,Ny))
     lcm = 0d0
     do ix = 1,Nx
-       do iy = 1,Ny
-          ilat = ix + (iy-1)*Nx
-          lcm(ix,iy) = trace(Q4(:,:,ilat,ilat))
-       enddo
+      do iy = 1,Ny
+        ilat = ix + (iy-1)*Nx
+        lcm(ix,iy) = trace(Q4(:,:,ilat,ilat))
+      enddo
     enddo
-    if(MPImaster)call stop_timer()
+    call stop_timer()
     !
   end subroutine obc_local_chern_marker
 
@@ -431,15 +425,15 @@ contains
     !
     if(.not.allocated(PSzP))call eigh_PSzP()
     !
-    if(MPImaster)call start_timer("obc_local_spinChernMarker_s"//str(spin))
+    call start_timer("obc_local_spinChernMarker_s"//str(spin))
     !
     allocate(Q(Nlso,Nocc))
-    Q = ( U(:,1:Nocc).mx. PSzP ) 
+    Q = ( U(:,1:Nocc).mx. PSzP )
     !
     !GS projectors P_-, P_+
     select case(spin)
-    case(1);P = ( Q(:,1:N)    .mx.transpose(conjg(Q(:,1:N))) )    
-    case(2);P = ( Q(:,N+1:2*N).mx.transpose(conjg(Q(:,N+1:2*N))) )
+     case(1);P = ( Q(:,1:N)    .mx.transpose(conjg(Q(:,1:N))) )
+     case(2);P = ( Q(:,N+1:2*N).mx.transpose(conjg(Q(:,N+1:2*N))) )
     end select
     !
     R       = TB_build_Rcoord([Nx,Ny],to_home=.false.)
@@ -452,13 +446,13 @@ contains
     allocate(lcm(Nx,Ny))
     lcm = 0d0
     do ix = 1,Nx
-       do iy = 1,Ny
-          ilat = ix + (iy-1)*Nx
-          lcm(ix,iy) = trace(Q4(:,:,ilat,ilat))
-       enddo
+      do iy = 1,Ny
+        ilat = ix + (iy-1)*Nx
+        lcm(ix,iy) = trace(Q4(:,:,ilat,ilat))
+      enddo
     enddo
     !
-    if(MPImaster)call stop_timer()
+    call stop_timer()
     !
   end subroutine obc_local_spin_chern_marker
 
@@ -494,7 +488,7 @@ contains
     !
     call TB_get_bk(b1,b2)
     !
-    if(MPImaster)call start_timer("pbc_local_ChernMarker")
+    call start_timer("pbc_local_ChernMarker")
     !
     Ub1 = periodic_gauge(U,b1)
     Ub2 = periodic_gauge(U,b2)
@@ -507,16 +501,16 @@ contains
     P   = (Pb1.mx.Pb2) - (Pb2.mx.Pb1)
     !
     if(to_lower(method_)=='s')then
-       Umb1 = periodic_gauge(U,-b1)
-       Umb2 = periodic_gauge(U,-b2)
-       Vmb1 = dual_state(U,Umb1)
-       Vmb2 = dual_state(U,Umb2)
-       Pmb1 = ( Vmb1(:,1:Nocc).mx.transpose(conjg(Vmb1(:,1:Nocc))) )
-       Pmb2 = ( Vmb2(:,1:Nocc).mx.transpose(conjg(Vmb2(:,1:Nocc))) )
-       P    =  ((Pmb1.mx.Pmb2) - (Pmb2.mx.Pmb1)) - &
-            ((Pb1 .mx.Pmb2) - (Pmb2.mx.Pb1) ) - &
-            ((Pmb1.mx.Pb2)  - (Pb2 .mx.Pmb1))
-       P    = P/4d0
+      Umb1 = periodic_gauge(U,-b1)
+      Umb2 = periodic_gauge(U,-b2)
+      Vmb1 = dual_state(U,Umb1)
+      Vmb2 = dual_state(U,Umb2)
+      Pmb1 = ( Vmb1(:,1:Nocc).mx.transpose(conjg(Vmb1(:,1:Nocc))) )
+      Pmb2 = ( Vmb2(:,1:Nocc).mx.transpose(conjg(Vmb2(:,1:Nocc))) )
+      P    =  ((Pmb1.mx.Pmb2) - (Pmb2.mx.Pmb1)) - &
+        ((Pb1 .mx.Pmb2) - (Pmb2.mx.Pb1) ) - &
+        ((Pmb1.mx.Pb2)  - (Pb2 .mx.Pmb1))
+      P    = P/4d0
     endif
     !
     Chern_Q2 = dimag((P.mx.Pgs))/pi2*Nlat
@@ -527,13 +521,13 @@ contains
     allocate(lcm(Nx,Ny))
     lcm = 0d0
     do ix = 1,Nx
-       do iy = 1,Ny
-          ilat = ix + (iy-1)*Nx
-          lcm(ix,iy) = trace(Chern_Q4(:,:,ilat,ilat))
-       enddo
+      do iy = 1,Ny
+        ilat = ix + (iy-1)*Nx
+        lcm(ix,iy) = trace(Chern_Q4(:,:,ilat,ilat))
+      enddo
     enddo
     !
-    if(MPImaster)call stop_timer()
+    call stop_timer()
     !
   end subroutine pbc_local_chern_marker
 
@@ -570,19 +564,19 @@ contains
     !
     !Start Building LCM_+,-
     call TB_get_bk(b1,b2)
-    !    
+    !
     if(.not.allocated(PSzP))call eigh_PSzP()
     !
     !
-    if(MPImaster)call start_timer("pbc_local_spinChernMarker_s"//str(spin))
+    call start_timer("pbc_local_spinChernMarker_s"//str(spin))
     !
     allocate(Q(Nlso,Nocc))!;Q=zero
-    Q = ( U(:,1:Nocc).mx. PSzP ) 
+    Q = ( U(:,1:Nocc).mx. PSzP )
     !
     !GS projectors Pgs_-, Pgs_+
     select case(spin)
-    case(1);Pgs = Q(:,1:N) .mx. transpose(conjg(Q(:,1:N)))
-    case(2);Pgs = Q(:,N+1:).mx. transpose(conjg(Q(:,N+1:)))
+     case(1);Pgs = Q(:,1:N) .mx. transpose(conjg(Q(:,1:N)))
+     case(2);Pgs = Q(:,N+1:).mx. transpose(conjg(Q(:,N+1:)))
     end select
     !
     Ub1 = periodic_gauge(Q,b1)
@@ -593,17 +587,17 @@ contains
     Pb2 = Vb2(:,1:N).mx.transpose(conjg(Vb2(:,1:N)))
     P   = (Pb1.mx.Pb2) - (Pb2.mx.Pb1)
     !
-    if(to_lower(method_)=='s')then       
-       Umb1 = periodic_gauge(Q,-b1)
-       Umb2 = periodic_gauge(Q,-b2)
-       Vmb1 = dual_state(Q,Umb1,spin)
-       Vmb2 = dual_state(Q,Umb2,spin)
-       Pmb1 = (Vmb1(:,1:N).mx.transpose(conjg(Vmb1(:,1:N))) )
-       Pmb2 = (Vmb2(:,1:N).mx.transpose(conjg(Vmb2(:,1:N))) )         
-       P    =  ((Pmb1.mx.Pmb2) - (Pmb2.mx.Pmb1)) - &
-            ((Pb1.mx.Pmb2) - (Pmb2.mx.Pb1) )    - &
-            ((Pmb1.mx.Pb2)  - (Pb2.mx.Pmb1))
-       P    = P/4d0
+    if(to_lower(method_)=='s')then
+      Umb1 = periodic_gauge(Q,-b1)
+      Umb2 = periodic_gauge(Q,-b2)
+      Vmb1 = dual_state(Q,Umb1,spin)
+      Vmb2 = dual_state(Q,Umb2,spin)
+      Pmb1 = (Vmb1(:,1:N).mx.transpose(conjg(Vmb1(:,1:N))) )
+      Pmb2 = (Vmb2(:,1:N).mx.transpose(conjg(Vmb2(:,1:N))) )
+      P    =  ((Pmb1.mx.Pmb2) - (Pmb2.mx.Pmb1)) - &
+        ((Pb1.mx.Pmb2) - (Pmb2.mx.Pb1) )    - &
+        ((Pmb1.mx.Pb2)  - (Pb2.mx.Pmb1))
+      P    = P/4d0
     endif
     !
     !
@@ -615,13 +609,13 @@ contains
     allocate(lcm(Nx,Ny))
     lcm = 0d0
     do ix = 1,Nx
-       do iy = 1,Ny
-          ilat = ix + (iy-1)*Nx
-          lcm(ix,iy) = trace(Chern_Q4(:,:,ilat,ilat))
-       enddo
+      do iy = 1,Ny
+        ilat = ix + (iy-1)*Nx
+        lcm(ix,iy) = trace(Chern_Q4(:,:,ilat,ilat))
+      enddo
     enddo
     !
-    if(MPImaster)call stop_timer()
+    call stop_timer()
     !
   end subroutine pbc_local_spin_chern_marker
 
@@ -693,15 +687,7 @@ contains
     allocate(S(N,N));S=zero
     S = ( transpose(conjg(U(:,a+1:a+N))).mx. Ub(:,a+1:a+N) )
     !
-#ifdef _SCALAPACK
-    if(MpiSize==1)then
-       call inv(S)
-    else
-       call p_inv(S,Nblock)
-    endif
-#else
     call inv(S)
-#endif
     !
     if(allocated(Vb))deallocate(Vb)
     allocate(Vb(Nlso,N))
@@ -724,17 +710,9 @@ contains
     allocate(PSzP(Nocc,Nocc))
     allocate(Epsp(Nocc))
     PSzP = conjg(transpose(U(:,1:Nocc))).mx. (Sz.mx.U(:,1:Nocc))
-#ifdef _SCALAPACK
-    if(MPIsize==1)then
-       call eigh(PSzP,Epsp)
-    else       
-       call p_eigh(PSzP,Epsp,Nblock)
-    endif
-#else
     call eigh(PSzP,Epsp)
-#endif
-    if(MPImaster)call save_array("Epszp.dat",Epsp)
-    if(MPImaster)call check_Pgap("eigh_PSzP")
+    call save_array("Epszp.dat",Epsp)
+    call check_Pgap("eigh_PSzP")
     !
   end subroutine eigh_PSzP
   !
@@ -764,16 +742,16 @@ contains
     real(8),parameter    :: eps=1d-7
     a = minval(e); b = maxval(e)
     do iter=1,200
-       mu = 0.5d0*(a + b)
-       n  = sum(fermi(e-mu, beta))
-       err= n - nocc
-       if(err<0d0)then
-          a = mu
-       else
-          b = mu
-       endif
-       if(MPImaster)print*,iter,err
-       if(abs(err)<eps)return
+      mu = 0.5d0*(a + b)
+      n  = sum(fermi(e-mu, beta))
+      err= n - nocc
+      if(err<0d0)then
+        a = mu
+      else
+        b = mu
+      endif
+      print*,iter,err
+      if(abs(err)<eps)return
     enddo
     stop "ERROR chemical_potential: failed after 200 iterations"
   end function chemical_potential
@@ -792,15 +770,15 @@ contains
     real(8)                   :: mu
     real(8)                   :: weight,ww,fw
     integer                   :: i,N
-    N = size(u,2)    
+    N = size(u,2)
     weight = 1d0
     if(beta<1d3)then
-       weight  = 0d0
-       do i=1,N
-          ww = dot_product(state, u(:,i))
-          fw = fermi(evals(i)-mu,beta)
-          weight = weight+fw*abs(ww)**2
-       enddo
+      weight  = 0d0
+      do i=1,N
+        ww = dot_product(state, u(:,i))
+        fw = fermi(evals(i)-mu,beta)
+        weight = weight+fw*abs(ww)**2
+      enddo
     endif
   end function smearing
 
@@ -827,7 +805,7 @@ contains
     integer                            :: ir,ix,iy,iz,Nr(3),D
     logical :: rescale
     !
-    rescale = .true. ;if(present(to_home))rescale=to_home 
+    rescale = .true. ;if(present(to_home))rescale=to_home
     !
     Ndim = size(Nvec)
     Ngrd = product(Nvec)
@@ -838,7 +816,7 @@ contains
     D = size(Nvec)
     Nr=1
     do ir=1,D
-       Nr(ir)=Nvec(ir)
+      Nr(ir)=Nvec(ir)
     enddo
     if(product(Nr)/=product(Nvec))stop "TB_build_Rcoord ERROR: product(Nrvec) != product(Nr)"
     !
@@ -846,13 +824,13 @@ contains
     !
     ir=0
     do iy=1,Nr(2)
-       do ix=1,Nr(1)
-          do io=1,Nso
-             ir=ir+1
-             Rcoord(ir,:) = dble(ix)*e1(1:D) + dble(iy)*e2(1:D)
-             if(rescale)Rcoord(ir,:) = dble(ix)/Nr(1)*e1(1:D) + dble(iy)/Nr(2)*e2(1:D)
-          enddo
-       enddo
+      do ix=1,Nr(1)
+        do io=1,Nso
+          ir=ir+1
+          Rcoord(ir,:) = dble(ix)*e1(1:D) + dble(iy)*e2(1:D)
+          if(rescale)Rcoord(ir,:) = dble(ix)/Nr(1)*e1(1:D) + dble(iy)/Nr(2)*e2(1:D)
+        enddo
+      enddo
     enddo
   end function TB_build_Rcoord
 
@@ -862,8 +840,8 @@ contains
 
 
 
-  
-END MODULE LCM_SQUARE
+
+end module LCM_SQUARE
 
 
 
@@ -874,58 +852,58 @@ END MODULE LCM_SQUARE
 
 
 
-  ! !------------------------------------------------------------------
-  ! ! calcola il numero di chern localmente nello spazio reale,
-  ! ! alla bianco & resta, per strip obc su x e pbc su y.
-  ! ! prende in input i proiettori p e q sulle bande occupate complessive,
-  ! ! che sono matrici nx*nky x nx*nky
-  ! ! get_local_chern is the unsymmetric version requiring less memory
-  ! ! c(r) = -4 pi (2/v_uc) im tr (x_p y_q)
-  ! !------------------------------------------------------------------
-  ! subroutine local_chern_marker(U,lcm)
-  !   complex(8),dimension(:,:),intent(in)      :: U    ![Nlso,Nlso]
-  !   real(8),dimension(:,:),allocatable        :: lcm  ![Nx,Ny]
-  !   !
-  !   real(8),dimension(:,:),allocatable        :: R    ![Nlso,D=2]     
-  !   complex(8),dimension(:,:),allocatable     :: P,Q  ![Nlso,Nlso]
-  !   complex(8),dimension(:,:,:,:),allocatable :: Q4   ![Nso,Nso,Nlat,Nlat]
-  !   integer                                   :: i,j,ilat
-  !   real(8)                                   :: Rx1,Ry2
-  !   !
-  !   call check_dimension("local_chern_marker")
-  !   call assert_shape(U,[size(U,1),Nlso],"local_chern_marker","H")
-  !   !
-  !   allocate(P(Nlso,Nlso),Q(Nlso,Nlso))
-  !   P = zero
-  !   Q = zero
-  !   !
-  !   do j=1,Nocc
-  !      P = P + outerprod(U(:,j),conjg(U(:,j)))
-  !   enddo
-  !   Q = zeye(Nlso) - P
-  !   !
-  !   allocate(R(Nlso,2))
-  !   R = TB_build_Rcoord([Nx,Ny],to_home=.false.)
-  !   do concurrent(i=1:Nlso,j=1:Nlso)
-  !      rx1 = R(i,1)
-  !      ry2 = R(j,2)
-  !      Q(i,j) = rx1*ry2*Q(i,j)
-  !   enddo
-  !   !
-  !   Q = matmul(P, matmul(Q,P))
-  !   !
-  !   allocate(Q4(Nso,Nso,Nlat,Nlat))
-  !   Q4 = reshape_rank2_to_rank4(Q,Nso,Nlat)
-  !   !
-  !   if(allocated(lcm))deallocate(lcm)
-  !   allocate(lcm(Nx,Ny))
-  !   lcm=0d0
-  !   do i = 1,Nx
-  !      do j = 1,Ny
-  !         ilat = i + (j-1)*Nx
-  !         lcm(i,j) = lcm(i,j) + dimag(trace(Q4(:,:,ilat,ilat)) )*4*pi
-  !      enddo
-  !   enddo
-  !   !
-  !   return
-  ! end subroutine local_chern_marker
+ ! !------------------------------------------------------------------
+ ! ! calcola il numero di chern localmente nello spazio reale,
+ ! ! alla bianco & resta, per strip obc su x e pbc su y.
+ ! ! prende in input i proiettori p e q sulle bande occupate complessive,
+ ! ! che sono matrici nx*nky x nx*nky
+ ! ! get_local_chern is the unsymmetric version requiring less memory
+ ! ! c(r) = -4 pi (2/v_uc) im tr (x_p y_q)
+ ! !------------------------------------------------------------------
+ ! subroutine local_chern_marker(U,lcm)
+ !   complex(8),dimension(:,:),intent(in)      :: U    ![Nlso,Nlso]
+ !   real(8),dimension(:,:),allocatable        :: lcm  ![Nx,Ny]
+ !   !
+ !   real(8),dimension(:,:),allocatable        :: R    ![Nlso,D=2]
+ !   complex(8),dimension(:,:),allocatable     :: P,Q  ![Nlso,Nlso]
+ !   complex(8),dimension(:,:,:,:),allocatable :: Q4   ![Nso,Nso,Nlat,Nlat]
+ !   integer                                   :: i,j,ilat
+ !   real(8)                                   :: Rx1,Ry2
+ !   !
+ !   call check_dimension("local_chern_marker")
+ !   call assert_shape(U,[size(U,1),Nlso],"local_chern_marker","H")
+ !   !
+ !   allocate(P(Nlso,Nlso),Q(Nlso,Nlso))
+ !   P = zero
+ !   Q = zero
+ !   !
+ !   do j=1,Nocc
+ !      P = P + outerprod(U(:,j),conjg(U(:,j)))
+ !   enddo
+ !   Q = zeye(Nlso) - P
+ !   !
+ !   allocate(R(Nlso,2))
+ !   R = TB_build_Rcoord([Nx,Ny],to_home=.false.)
+ !   do concurrent(i=1:Nlso,j=1:Nlso)
+ !      rx1 = R(i,1)
+ !      ry2 = R(j,2)
+ !      Q(i,j) = rx1*ry2*Q(i,j)
+ !   enddo
+ !   !
+ !   Q = matmul(P, matmul(Q,P))
+ !   !
+ !   allocate(Q4(Nso,Nso,Nlat,Nlat))
+ !   Q4 = reshape_rank2_to_rank4(Q,Nso,Nlat)
+ !   !
+ !   if(allocated(lcm))deallocate(lcm)
+ !   allocate(lcm(Nx,Ny))
+ !   lcm=0d0
+ !   do i = 1,Nx
+ !      do j = 1,Ny
+ !         ilat = i + (j-1)*Nx
+ !         lcm(i,j) = lcm(i,j) + dimag(trace(Q4(:,:,ilat,ilat)) )*4*pi
+ !      enddo
+ !   enddo
+ !   !
+ !   return
+ ! end subroutine local_chern_marker

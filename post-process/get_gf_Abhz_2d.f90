@@ -1,9 +1,6 @@
 program analysis
   USE COMMON
   USE LCM_SQUARE
-#ifdef _SCALAPACK
-  USE MPI
-#endif
   implicit none
 
 
@@ -18,9 +15,9 @@ program analysis
   complex(8),dimension(:),allocatable :: Gi
   character(len=64)                   :: suffix,iostr
   integer :: NNspin
-  
-  call init_parallel()  
-  !  
+
+
+  !
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="used.inputABHZ.conf")
   call parse_cmd_variable(idumFILE,"idumFILE",default="list_idum")
@@ -30,7 +27,7 @@ program analysis
   call parse_input_variable(disorder_type,"DISORDER_TYPE",inputFILE,default=0)
   call parse_input_variable(bhz_pbc,"BHZ_PBC",inputFILE,default=.true.)
   call parse_input_variable(mh,"MH",inputFILE,default=3.d0)
-  call parse_input_variable(lambda,"LAMBDA",inputFILE,default=0.3d0)  
+  call parse_input_variable(lambda,"LAMBDA",inputFILE,default=0.3d0)
   call parse_input_variable(mu,"MU",inputFILE,default=0.d0)
   call parse_input_variable(temp,"temp",inputFILE,default=0.0001d0)
   call parse_input_variable(wmix,"WMIX",inputFILE,default=0.5d0)
@@ -44,7 +41,6 @@ program analysis
   call parse_input_variable(with_lcm,"WITH_lcm",inputFILE,default=.false.)
   call parse_input_variable(with_mats_gf,"WITH_MATS_GF",inputFILE,default=.false.)
   call parse_input_variable(with_real_gf,"WITH_REAL_GF",inputFILE,default=.false.)
-  call parse_input_variable(Nblock,"NBLOCK",inputFILE,default=4)
   call parse_cmd_variable(NNspin,"NNspin",default=1)
   !
   !Save variables into DMFT_TOOLS memory pool
@@ -103,12 +99,12 @@ program analysis
         !
         iostr = "_l"//str(iorb)//"m"//str(iorb)//"_s"//str(ispin)
         !
-        if(MPImaster)call start_timer(str(iostr))
+        call start_timer(str(iostr))
         Aw = zero
-        do i=1+MPIrank,Nidum,MPIsize
+        do i=1,Nidum
            idum = list_idum(i)
            !< Build up disorder:
-           call setup_Abhz(verbose=.false.)
+
            dir="IDUM_"//str(list_idum(i))
            suffix = str(idum)//str(iostr)
            call chdir(str(dir))
@@ -122,14 +118,11 @@ program analysis
            enddo
            call system("rm -rf Gloc_"//str(suffix)//"_realw_indx*.dat")
            call chdir(str(here))
-           if(MPImaster)call eta(i,Nidum)
+           call eta(i,Nidum)
            !< Free memory:
-           call free_Abhz()
+
         enddo
-        if(MPImaster)call stop_timer()
-#ifdef _SCALAPACK
-        call MPI_AllReduce(MPI_IN_PLACE,Aw,size(Aw),MPI_Double_Precision,MPI_Sum,MPI_COMM_WORLD,mpi_ierr)
-#endif
+        call stop_timer()
         !
         Egf = sum(Aw,dim=1)/Nlat/Nidum
         Egf2= sum(Aw*AW,dim=1)/Nlat/Nidum
@@ -149,7 +142,7 @@ program analysis
 
 
 
-  call end_parallel()
+
 
 
 contains

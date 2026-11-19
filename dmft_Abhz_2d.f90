@@ -1,7 +1,6 @@
 program ed_bhz_2d_edge
   USE COMMON
   USE LCM_SQUARE
-  USE EDIPACK2
   USE EDIPACK2INEQ
   implicit none
   real(8)                                     :: z2,sp_chern(2)
@@ -11,6 +10,8 @@ program ed_bhz_2d_edge
   logical                                     :: spinsym
   logical                                     :: with_kinetic
   logical                                     :: with_z
+  integer                                     :: dmft_comm
+  logical                                     :: MpiMaster
   !Bath:
   integer                                     :: Nb
   real(8),allocatable,dimension(:,:)          :: Bath
@@ -22,7 +23,8 @@ program ed_bhz_2d_edge
   complex(8),allocatable,dimension(:,:,:,:,:)   :: Hloc
   complex(8),allocatable,dimension(:,:)         :: Gtest
 
-  call init_parallel()
+  call init_MPI(dmft_comm)
+  MpiMaster = get_master_MPI(dmft_comm)
 
   call parse_cmd_variable(inputFILE,"inputFILE",default="inputABHZ.conf")
   call parse_input_variable(Nx,"Nx",inputFILE,default=10)
@@ -39,7 +41,6 @@ program ed_bhz_2d_edge
   call parse_input_variable(with_real_gf,"WITH_REAL_GF",inputFILE,default=.false.)
   call parse_input_variable(with_kinetic,"WITH_KINETIC",inputFILE,default=.false.)
   call parse_input_variable(with_Z,"WITH_Z",inputFILE,default=.false.)
-  call parse_input_variable(Nblock,"NBLOCK",inputFILE,default=4)
   !
   call ed_read_input(trim(inputFILE))
 
@@ -232,15 +233,7 @@ contains
        H = matmul(sqrt(Z),matmul(H,Z))
     endif
     !
-#ifdef _SCALAPACK
-    if(MpiSize==1)then
-       call eigh(H,Ev)
-    else
-       call p_eigh(H,Ev,Nblock)
-    endif
-#else
     call eigh(H,Ev)
-#endif
     !
     call push_Bloch(H,Ev)
     !
@@ -249,7 +242,7 @@ contains
 
   subroutine get_gf_mats
     if(MpiMaster)call file_untargz(tarball="tar_gfmatrix")
-    call barrier_MPI(Mpi_COmm_World)
+    call barrier_MPI(dmft_comm)
     !S --> Sigma(iw) real-axis:
     if(allocated(self))deallocate(self)
     if(allocated(gloc))deallocate(gloc)
@@ -267,7 +260,7 @@ contains
 
   subroutine get_gf_real
     if(MpiMaster)call file_untargz(tarball="tar_gfmatrix")
-    call barrier_MPI(Mpi_COmm_World)
+    call barrier_MPI(dmft_comm)
     !S --> Sigma(w) real-axis:
     if(allocated(self))deallocate(self)
     if(allocated(gloc))deallocate(gloc)
@@ -285,7 +278,7 @@ contains
 
   subroutine get_Ekin
     if(MpiMaster)call file_untargz(tarball="tar_gfmatrix")
-    call barrier_MPI(Mpi_COmm_World)
+    call barrier_MPI(dmft_comm)
     if(allocated(self))deallocate(self)
     allocate(self(Nlat,Nspin,Nspin,Norb,Norb,Lmats))
     call ed_get_sigma(self,Nlat,'m')

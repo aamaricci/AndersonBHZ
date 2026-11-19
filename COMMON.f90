@@ -1,12 +1,6 @@
 MODULE COMMON
-#ifdef _SCALAPACK
-  USE SCIFOR, operator(.mx.) => operator(.px.)
-  USE DMFT_TOOLS
-  USE MPI
-#else
   USE SCIFOR, operator(.mx.) => operator(.x.)
   USE DMFT_TOOLS
-#endif
   implicit none
 
   integer                                   :: Nso=0
@@ -15,7 +9,6 @@ MODULE COMMON
   integer                                   :: Ny=0
   integer                                   :: Nlso=0
   integer                                   :: Nocc=0
-  integer                                   :: Nblock=0
   !
   integer                                   :: Nk
   integer                                   :: Nkpath,Npts,Nidum
@@ -25,8 +18,9 @@ MODULE COMMON
   complex(8),dimension(4,4)                 :: GammaY
   complex(8),dimension(4,4)                 :: GammaS
   !Model parameters:
-  character(len=20)                         :: inputFILE
-  character(len=20)                         :: idumFILE
+  character(len=512)                        :: inputFILE
+  character(len=512)                        :: idumFILE
+  character(len=512)                        :: prefix="."
   real(8)                                   :: Wdis
   integer                                   :: Idum
   integer                                   :: disorder_type
@@ -61,16 +55,164 @@ MODULE COMMON
   complex(8),dimension(:,:),allocatable     :: PSzP
   real(8),dimension(:),allocatable          :: E
   real(8),dimension(:),allocatable          :: Epsp
-  !MPI:
-  logical                                   :: MpiStatus=.false.
-  logical                                   :: MpiMaster=.true.
-  integer                                   :: MpiRank=0
-  integer                                   :: MpiSize=1
-  integer                                   :: Mpi_Ierr
-
+  logical,private                           :: wd_active=.false.
+  integer,private                           :: wd_seed=0
+  integer,private                           :: disorder_seed=0
+  character(len=:),allocatable,private      :: previous_wd
+  character(len=:),allocatable,private      :: active_wd
+  character(len=:),allocatable,private      :: wd_prefix
 
 
 contains
+
+
+  subroutine set_seed_wd()
+    ! Enter PREFIX/seed_<IDUM> and retain the caller's absolute working
+    ! directory. Repeated calls for the active seed are harmless. Call
+    ! reset_seed_wd before changing IDUM or PREFIX.
+    character(len=4096)          :: location
+    character(len=:),allocatable :: destination
+    integer                      :: status
+    !
+    if(len_trim(prefix)==0) &
+      error stop "set_seed_wd: PREFIX must be a nonempty directory"
+    if(wd_active)then
+      if(idum/=wd_seed.or.trim(prefix)/=wd_prefix) &
+        error stop "set_seed_wd: reset the working directory first"
+      call getcwd(location,status)
+      if(status/=0.or.trim(location)/=active_wd) &
+        error stop "set_seed_wd: active working directory changed"
+      return
+    endif
+    !
+    call getcwd(location,status)
+    if(status/=0)error stop "set_seed_wd: cannot read working directory"
+    previous_wd = trim(location)
+    destination = trim(prefix)//"/seed_"//str(idum)
+    call make_output_directory(destination)
+    call chdir(destination,status)
+    if(status/=0)error stop "set_seed_wd: cannot enter seed directory"
+    call getcwd(location,status)
+    if(status/=0)error stop "set_seed_wd: cannot resolve seed directory"
+    active_wd = trim(location)
+    wd_prefix = trim(prefix)
+    wd_seed   = idum
+    wd_active = .true.
+  end subroutine set_seed_wd
+
+
+  subroutine reset_seed_wd()
+    ! Restore the absolute working directory saved by set_seed_wd.
+    integer :: status
+    !
+    if(.not.wd_active)return
+    call chdir(previous_wd,status)
+    if(status/=0) &
+      error stop "reset_seed_wd: cannot restore working directory"
+    wd_active = .false.
+    wd_seed   = 0
+    deallocate(previous_wd,active_wd,wd_prefix)
+  end subroutine reset_seed_wd
+
+
+  function seed_directory() result(folder)
+    ! Return the active seed directory, or its path relative to the caller.
+    character(len=:),allocatable :: folder
+    !
+    if(wd_active)then
+      if(idum/=wd_seed.or.trim(prefix)/=wd_prefix) &
+        error stop "seed_directory: active seed and PREFIX disagree"
+      folder = active_wd
+    else
+      folder = trim(prefix)//"/seed_"//str(idum)
+    endif
+  end function seed_directory
+
+
+  function file_basename(path) result(name)
+    character(len=*),intent(in)      :: path
+    character(len=:),allocatable     :: name
+    integer                          :: separator
+    !
+    separator = scan(trim(path),"/",back=.true.)
+    name = path(separator+1:len_trim(path))
+  end function file_basename
+
+
+  subroutine make_output_directory(path)
+    ! Create PATH recursively. Quote it as a single shell argument.
+    character(len=*),intent(in)  :: path
+    character(len=:),allocatable :: quoted
+    integer                      :: i,status,command_status
+    !
+    quoted = "'"
+    do i=1,len_trim(path)
+      if(path(i:i)=="'")then
+        quoted = quoted//"'"//achar(34)//"'"//achar(34)//"'"
+      else
+        quoted = quoted//path(i:i)
+      endif
+    enddo
+    quoted = quoted//"'"
+    call execute_command_line("mkdir -p "//quoted,exitstat=status, &
+      cmdstat=command_status)
+    if(command_status/=0.or.status/=0) &
+      error stop "make_output_directory: cannot create output directory"
+  end subroutine make_output_directory
+
+
+  subroutine cheb_fermi_coefficients(scale,shift,fermi_level,coeff,kind)
+    ! Return the Chebyshev coefficients of Theta(fermi_level-E) on
+    ! [shift-scale,shift+scale] and activate them in SciFortran.
+    ! The series takes the value 1/2 at E=fermi_level. KIND accepts
+    ! "none" or "jackson" and defaults to "jackson".
+    real(8),intent(in)                    :: scale,shift,fermi_level
+    real(8),dimension(0:),intent(out)     :: coeff
+    character(len=*),optional,intent(in)  :: kind
+    character(len=16)                     :: kernel
+    real(8)                               :: xfermi,theta,angle,g
+    integer                               :: m,order
+    !
+    if(scale<=0d0) &
+      error stop "cheb_fermi_coefficients: SCALE must be positive"
+    order  = ubound(coeff,1)
+    kernel = "jackson"
+    if(present(kind))kernel=to_lower(trim(kind))
+    select case(kernel)
+    case("none","n")
+      kernel = "none"
+    case("jackson","j")
+      kernel = "jackson"
+    case default
+      error stop "cheb_fermi_coefficients: KIND must be none or jackson"
+    end select
+    !
+    coeff  = 0d0
+    xfermi = (fermi_level-shift)/scale
+    if(xfermi<=-1d0)then
+      call cheb_set(scale,shift,coeff)
+      return
+    elseif(xfermi>=1d0)then
+      coeff(0) = 1d0
+      call cheb_set(scale,shift,coeff)
+      return
+    endif
+    !
+    angle   = acos(xfermi)
+    coeff(0) = (pi-angle)/pi
+    do m=1,order
+      coeff(m) = -2d0*sin(m*angle)/(pi*m)
+    enddo
+    if(kernel=="jackson")then
+      theta = pi/(order+2)
+      do m=0,order
+        g = ((order+2-m)*cos(m*theta) + &
+          sin(m*theta)/tan(theta))/(order+2)
+        coeff(m) = coeff(m)*g
+      enddo
+    endif
+    call cheb_set(scale,shift,coeff)
+  end subroutine cheb_fermi_coefficients
 
 
   function xcoord(ilat) result(ix)
@@ -164,65 +306,248 @@ contains
 
 
 
-  subroutine setup_Abhz(verbose)
-    logical,optional :: verbose
-    logical :: verbose_
-    logical :: bool
-    integer :: ilat
-    verbose_=.true.;if(present(verbose))verbose_=verbose    
-    if(allocated(Hlat))deallocate(Hlat)
-    allocate(Hlat(Nso,Nso,Nlat,Nlat))
-    if(allocated(Hij))deallocate(Hij)
-    allocate(Hij(Nlso,Nlso,1))
-    if(allocated(erandom))deallocate(erandom)
-    allocate(erandom(Nlat))
-    call check_dimension("setup_disorder")
+  subroutine setup_Abhz(verbose,spH,spin)
+    ! Build the square BHZ Hamiltonian for IDUM (serial). With SPH,
+    ! SPIN=+1/-1 returns one 2*Nlat spin sector and SPIN=0 returns the
+    ! complete 4*Nlat Hamiltonian. SPIN defaults to zero. Without SPH,
+    ! populate the dense COMMON arrays for legacy callers.
+    ! VERBOSE defaults to true and controls logging and disorder output.
+    ! A matching erandom_<IDUM>.restart overrides the generated disorder.
+    logical,optional,intent(in)                  :: verbose
+    type(sparse_zmatrix_csr),optional,intent(out) :: spH
+    integer,optional,intent(in)                  :: spin
+    logical                                      :: verbose_,bool,new_disorder
+    integer                                      :: ilat
+    integer                                      :: spin_
+    complex(8)                                   :: channel(4,4)
     !
-    if(verbose_.AND.MPImaster)write(*,*)
-    if(verbose_.AND.MPImaster)write(*,*)"Solve IDUM:",idum
-    if(verbose_.AND.MPImaster)write(*,*)"Nlso      :",Nlso
+    call check_dimension("setup_Abhz")
+    spin_ = 0
+    if(present(spin))spin_=spin
+    if(abs(spin_)>1) &
+      error stop "setup_Abhz: SPIN must be -1, 0 or +1"
+    if(.not.present(spH).and.spin_/=0) &
+      error stop "setup_Abhz: dense legacy setup requires SPIN=0"
+    select case(disorder_type)
+    case(0)
+       channel = Gamma0
+    case(1)
+       channel = Gamma5
+    case(2)
+       channel = GammaS
+    case default
+       error stop "setup_Abhz: DISORDER_TYPE must be in [0,2]"
+    end select
+    verbose_ = .true.
+    if(present(verbose))verbose_=verbose
+    !
+    new_disorder = .not.allocated(erandom)
+    if(new_disorder)then
+       allocate(erandom(Nlat))
+       call mersenne_init(idum)
+       call mt_random(erandom)
+       erandom = (2d0*erandom-1d0)*Wdis/2d0
+       inquire(file='erandom_'//str(idum)//'.restart',exist=bool)
+       if(bool)then
+          if(file_length('erandom_'//str(idum)//'.restart')/=Nlat) &
+            error stop "setup_Abhz: invalid disorder restart length"
+          call read_array('erandom_'//str(idum)//'.restart',erandom)
+       endif
+       disorder_seed = idum
+    elseif(disorder_seed/=idum)then
+       error stop "setup_Abhz: call free_Abhz before changing IDUM"
+    endif
+    if(verbose_.and.new_disorder)then
+       write(*,*) "Solve IDUM:",idum," Nlso:",Nlso
+       call save_array('erandom_'//str(idum)//'.used',erandom)
+    endif
     !
     if(allocated(Links))deallocate(Links)
     allocate(Links(4,2))
-    Links(1,:) = [1 ,0]
-    Links(2,:) = [0 ,1]
+    Links(1,:) = [1,0]
+    Links(2,:) = [0,1]
     Links(3,:) = [-1,0]
     Links(4,:) = [0,-1]
-    call TB_build_model(Hlat,ts_model,Nso,[Nx,Nx],Links,pbc=bhz_pbc)
-    !
-    call mersenne_init(idum)
-    call mt_random(erandom)
-    erandom=(2d0*erandom-1d0)*Wdis/2d0
-    !
-    inquire(file='erandom_'//str(idum)//'.restart',exist=bool)
-    if(bool)then
-       if(file_length('erandom_'//str(idum)//'.restart')/=Nlat)&
-            stop "setup_disorder error: size(erandom_"//str(idum)//".restart) != Nlat"
-       call read_array('erandom_'//str(idum)//'.restart',erandom)
+    if(present(spH))then
+       if(spin_==0)then
+          call build_Abhz_csr(spH,channel)
+       else
+          call build_Abhz_block_csr(spH,spin_)
+       endif
+    else
+       if(allocated(Hlat))deallocate(Hlat)
+       if(allocated(Hij))deallocate(Hij)
+       if(allocated(Sz))deallocate(Sz)
+       allocate(Hlat(Nso,Nso,Nlat,Nlat),Hij(Nlso,Nlso,1))
+       call TB_build_model(Hlat,ts_model,Nso,[Nx,Ny],Links,pbc=bhz_pbc)
+       do ilat=1,Nlat
+          Hlat(:,:,ilat,ilat) = Hlat(:,:,ilat,ilat) + erandom(ilat)*channel
+       enddo
+       Hij(:,:,1) = reshape_rank4_to_rank2(Hlat,Nso,Nlat)
+       Sz = kron(eye(Nlat),GammaS)
     endif
-    if(verbose_.AND.MPImaster)call save_array('erandom_'//str(idum)//'.used',erandom)
-    !
-    do ilat=1,Nlat
-       select case(disorder_type)
-       case default;stop "setup_disorder error: disorder_type [0:2]"
-       case(0)                  !N
-          Hlat(:,:,ilat,ilat) = Hlat(:,:,ilat,ilat) + erandom(ilat)*Gamma0
-       case(1)                  !Tz
-          Hlat(:,:,ilat,ilat) = Hlat(:,:,ilat,ilat) + erandom(ilat)*Gamma5
-       case(2)                  !Sz
-          Hlat(:,:,ilat,ilat) = Hlat(:,:,ilat,ilat) + erandom(ilat)*GammaS
-       end select
-    enddo
-    !
-    !Reshape:
-    Hij(:,:,1) = reshape_rank4_to_rank2(Hlat,Nso,Nlat)
-    !
-    if(allocated(Sz))deallocate(Sz)
-    allocate(Sz(Nlso,Nlso))
-    Sz = kron(eye(Nlat),GammaS)
-    !
-    !
   end subroutine setup_Abhz
+
+
+  function ts_model_block(link,spin) result(Hts)
+    ! Return one conserved-spin 2x2 hopping block in orbital space.
+    integer,intent(in)          :: link,spin
+    complex(8),dimension(2,2)   :: Hts
+    !
+    select case(link)
+    case(0)
+       Hts = Mh*pauli_tau_z
+    case(1)
+       Hts = -0.5d0*pauli_tau_z &
+         +xi*0.5d0*lambda*spin*pauli_tau_x
+    case(2)
+       Hts = -0.5d0*pauli_tau_z &
+         -xi*0.5d0*lambda*pauli_tau_y
+    case(3)
+       Hts = -0.5d0*pauli_tau_z &
+         -xi*0.5d0*lambda*spin*pauli_tau_x
+    case(4)
+       Hts = -0.5d0*pauli_tau_z &
+         +xi*0.5d0*lambda*pauli_tau_y
+    case default
+       error stop "ts_model_block: LINK must be in [0,4]"
+    end select
+  end function ts_model_block
+
+
+  subroutine build_Abhz_block_csr(spH,spin)
+    ! Build one 2*Nlat spin sector. New CSR columns are inserted in
+    ! increasing order and coincident periodic links are accumulated.
+    type(sparse_zmatrix_csr),intent(inout) :: spH
+    integer,intent(in)                     :: spin
+    complex(8)                             :: blocks(2,2,0:4),block(2,2)
+    complex(8)                             :: disorder_block(2,2)
+    integer                                :: coords(Nlat,2)
+    integer                                :: target(0:4),r(2)
+    integer                                :: ilat,jlat,link,io,jo,i,j
+    !
+    select case(disorder_type)
+    case(0)
+       disorder_block = pauli_tau_0
+    case(1)
+       disorder_block = pauli_tau_z
+    case(2)
+       disorder_block = spin*pauli_tau_0
+    case default
+       error stop "build_Abhz_block_csr: invalid DISORDER_TYPE"
+    end select
+    call TB_build_CoordGrid([Nx,Ny],coords)
+    call spH%init(2*Nlat,2*Nlat)
+    do ilat=1,Nlat
+       target(0) = ilat
+       blocks(:,:,0) = ts_model_block(0,spin) &
+         +erandom(ilat)*disorder_block
+       do link=1,4
+          r = coords(ilat,:) + Links(link,:)
+          if(bhz_pbc)r = modulo(r-1,[Nx,Ny])+1
+          target(link) = TB_find_IndxCoord(r,[Nx,Ny])
+          blocks(:,:,link) = ts_model_block(link,spin)
+       enddo
+       do while(any(target>0))
+          jlat = minval(target,mask=target>0)
+          block = zero
+          do link=0,4
+             if(target(link)/=jlat)cycle
+             block = block + blocks(:,:,link)
+             target(link) = 0
+          enddo
+          do io=1,2
+             i = io + (ilat-1)*2
+             do jo=1,2
+                j = jo + (jlat-1)*2
+                if(block(io,jo)==zero)cycle
+                call spH%fast_insert(block(io,jo),i,j)
+             enddo
+          enddo
+       enddo
+    enddo
+  end subroutine build_Abhz_block_csr
+
+
+  subroutine assemble_Abhz_full(spHup,spHdown,spHfull)
+    ! Assemble the site-major 4*Nlat Hamiltonian from two 2*Nlat
+    ! sectors. The spin-off-diagonal blocks are exactly zero.
+    type(sparse_zmatrix_csr),intent(in)  :: spHup,spHdown
+    type(sparse_zmatrix_csr),intent(out) :: spHfull
+    integer                             :: spin,ib,jb,ifull,jfull
+    integer                             :: ilat,jlat,iorb,jorb,pos
+    !
+    if(spHup%Nrow/=2*Nlat.or.spHdown%Nrow/=2*Nlat) &
+      error stop "assemble_Abhz_full: invalid spin-block dimensions"
+    call spHfull%init(4*Nlat,4*Nlat)
+    do spin=1,2
+       do ib=1,2*Nlat
+          ilat  = (ib-1)/2+1
+          iorb  = modulo(ib-1,2)+1
+          ifull = iorb + (spin-1)*2 + (ilat-1)*4
+          if(spin==1)then
+             do pos=1,spHup%row(ib)%Size
+                jb = spHup%row(ib)%cols(pos)
+                jlat = (jb-1)/2+1
+                jorb = modulo(jb-1,2)+1
+                jfull = jorb + (spin-1)*2 + (jlat-1)*4
+                call spHfull%fast_insert( &
+                  spHup%row(ib)%vals(pos),ifull,jfull)
+             enddo
+          else
+             do pos=1,spHdown%row(ib)%Size
+                jb = spHdown%row(ib)%cols(pos)
+                jlat = (jb-1)/2+1
+                jorb = modulo(jb-1,2)+1
+                jfull = jorb + (spin-1)*2 + (jlat-1)*4
+                call spHfull%fast_insert( &
+                  spHdown%row(ib)%vals(pos),ifull,jfull)
+             enddo
+          endif
+       enddo
+    enddo
+  end subroutine assemble_Abhz_full
+
+
+  subroutine build_Abhz_csr(spH,channel)
+    ! Insert each physical column once and in increasing order.
+    ! For Nx=2 with PBC, opposite links can reach the same site.
+    type(sparse_zmatrix_csr),intent(inout) :: spH
+    complex(8),intent(in)                 :: channel(4,4)
+    complex(8)                            :: blocks(Nso,Nso,0:4),block(Nso,Nso)
+    integer                               :: coords(Nlat,2),target(0:4),r(2)
+    integer                               :: ilat,jlat,link,io,jo,i,j
+    !
+    call TB_build_CoordGrid([Nx,Ny],coords)
+    call spH%init(Nlso,Nlso)
+    do ilat=1,Nlat
+       target(0) = ilat
+       blocks(:,:,0) = ts_model(0,Nso) + erandom(ilat)*channel
+       do link=1,4
+          r = coords(ilat,:) + Links(link,:)
+          if(bhz_pbc)r = modulo(r-1,[Nx,Ny])+1
+          target(link) = TB_find_IndxCoord(r,[Nx,Ny])
+          blocks(:,:,link) = ts_model(link,Nso)
+       enddo
+       do while(any(target>0))
+          jlat = minval(target,mask=target>0)
+          block = zero
+          do link=0,4
+             if(target(link)/=jlat)cycle
+             block = block + blocks(:,:,link)
+             target(link) = 0
+          enddo
+          do io=1,Nso
+             i = io + (ilat-1)*Nso
+             do jo=1,Nso
+                j = jo + (jlat-1)*Nso
+                if(block(io,jo)==zero)cycle
+                call spH%fast_insert(block(io,jo),i,j)
+             enddo
+          enddo
+       enddo
+    enddo
+  end subroutine build_Abhz_csr
 
 
   subroutine free_Abhz
@@ -235,6 +560,7 @@ contains
     if(allocated(E))deallocate(E)
     if(allocated(PSzP))deallocate(PSzP)
     if(allocated(Epsp))deallocate(Epsp)
+    disorder_seed = 0
   end subroutine free_Abhz
 
 
@@ -246,9 +572,6 @@ contains
   !------------------------------------------------------------------
   subroutine check_dimension(caller)
     character(len=*) :: caller
-#ifdef _SCALAPACK
-    if(Nblock==0)stop str(caller)//" error: Nblock not set"
-#endif
     if(Nlso==0)stop str(caller)//" error: Nlso not set"
     if(Nso==0)stop str(caller)//" error: Nso not set"
     if(Nx==0)stop str(caller)//" error: Nx not set"
@@ -256,7 +579,6 @@ contains
     if(Nlat==0)stop str(caller)//" error: Nlat not set"
     if(Nocc==0)stop str(caller)//" error: Nocc not set"
     if(Nlat/=Nx*Ny)stop str(caller)//" error: Nlat != Nx*Ny"
-    if(.not.allocated(Hlat)) stop str(caller)//" error: Hlat not allocated"
     if(allocated(Hlat))call assert_shape(Hlat,[Nso,Nso,Nlat,Nlat],"check_dimension","Hlat")
     if(allocated(Hij))call assert_shape(Hij,[Nlso,Nlso,1],"check_dimension","Hij")
     if(allocated(U))call assert_shape(U,[Nlso,Nlso],"check_dimension","U")
@@ -265,7 +587,6 @@ contains
     if(allocated(PSzP))call assert_shape(PSzP,[Nocc,Nocc],"check_dimension","PSzP")
     if(allocated(Epsp))call assert_shape(Epsp,[Nocc],"check_dimension","Epsp")
   end subroutine check_dimension
-
 
 
 
@@ -288,8 +609,6 @@ contains
        allocate(list_idum(Nidum))
        list_idum = idum
     endif
-
-
   end subroutine read_list_idum
 
   !------------------------------------------------------------------
@@ -306,7 +625,7 @@ contains
     if(allocated(E))deallocate(E)
     allocate(U, source=Evec)
     allocate(E, source=Evals)
-    if(MPImaster)call save_array("E.dat",E)
+    call save_array("E.dat",E)
     call check_Egap("push_Bloch")
   end subroutine push_Bloch
 
@@ -321,13 +640,13 @@ contains
     Ep   = Epsp(N+1)
     Em   = Epsp(N)
     Pgap = Ep - Em
-    if(MPImaster)write(*,"(A,G21.13)")"PSzP gap=",Pgap
-    if(MPImaster)call save_array("PSzPgap.dat",Pgap)
+    write(*,"(A,G21.13)")"PSzP gap=",Pgap
+    call save_array("PSzPgap.dat",Pgap)
     !
     if(Pgap<1d-12)then
-       if(MPImaster)write(*,*)str(caller)//" warning: closing of the PSzP spectrum"
+       write(*,*)str(caller)//" warning: closing of the PSzP spectrum"
     elseif(Ep*Em>0d0)then
-       if(MPImaster)write(*,*)str(caller)//" warning: PSzP spectrum not symmetric"
+       write(*,*)str(caller)//" warning: PSzP spectrum not symmetric"
     endif
   end subroutine check_Pgap
 
@@ -342,13 +661,13 @@ contains
     Ep   = E(N+1)
     Em   = E(N)
     Egap = Ep - Em
-    if(MPImaster)write(*,"(A,G21.13)")"E gap=",Egap
-    if(MPImaster)call save_array("Egap.dat",Egap)
+    write(*,"(A,G21.13)")"E gap=",Egap
+    call save_array("Egap.dat",Egap)
     !
     ! if(Egap<1d-12)then
-    !    if(MPImaster)write(*,*)str(caller)//" warning: closing of the H spectrum"
+    !    write(*,*)str(caller)//" warning: closing of the H spectrum"
     ! elseif(Ep*Em>0d0)then
-    !    if(MPImaster)write(*,*)str(caller)//" warning: H spectrum not symmetric"
+    !    write(*,*)str(caller)//" warning: H spectrum not symmetric"
     ! endif
   end subroutine check_Egap
 
@@ -367,25 +686,22 @@ contains
     !
     call check_dimension("get_gf")
     !
-    if(MPImaster)write(*,"(A)")"Get local Green's function, axis:"//str(axis)
+    write(*,"(A)")"Get local Green's function, axis:"//str(axis)
     wfreq = build_frequency_array(axis)
     !
     !Allocate and setup the Matsubara freq.
     forall(i=1:Lfreq)csi(:,i)=one/(wfreq(i)+mu-E(:))
     !
     Gloc = zero
-    if(MPImaster)call start_timer
-    do i=1+MPIrank,Lfreq,MPIsize
+    call start_timer
+    do i=1,Lfreq
        do concurrent(ilat=1:Nlat,io=1:Nso,jo=1:Nso)
           is = io + (ilat-1)*Nso
           js = jo + (ilat-1)*Nso
           Gloc(ilat,io,jo,i) = sum(U(is,:)*conjg(U(js,:))*csi(:,i))!can use matmul
        enddo
     enddo
-#ifdef _SCALAPACK
-    call MPI_AllReduce(MPI_IN_PLACE,Gloc,size(Gloc),MPI_Double_Complex,MPI_Sum,MPI_COMM_WORLD,mpi_ierr)
-#endif
-    if(MPImaster)call stop_timer
+    call stop_timer
   end subroutine get_gf
 
 
@@ -477,29 +793,6 @@ contains
        Kmat(:,:,:,:,:,i) = reshape_rank3_to_rank5(MatNN(:,:,:,i),Nspin,Norb,Nlat)
     enddo
   end function gf_reshape
-
-
-
-  subroutine init_parallel
-#ifdef _SCALAPACK
-    call init_BLACS()           !includes init_MPI
-    MPImaster = get_master_BLACS()
-    MPIrank   = get_rank_BLACS()
-    MPISize   = get_size_BLACS()
-#endif
-  end subroutine init_parallel
-
-
-  subroutine end_parallel
-#ifdef _SCALAPACK
-    call finalize_BLACS()
-    MPImaster = .false.
-    MPIrank   = 0
-    MPISize   = 1
-#endif
-  end subroutine end_parallel
-
-
 
 
   subroutine add_to(vec,vals)

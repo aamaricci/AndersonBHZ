@@ -26,17 +26,17 @@ do
     WDIR=WDIS$WDIS
     if [ -d $WDIR ];then
 	cd $WDIR
-	pwd 
+	pwd
 	ldir|cut -dU -f2 |tee list_u.used
 
 	rm *mgs*.dat
-	
+
 	# while read U;do
 	#     UDIR=U$U
 	#     if [ -d $UDIR ];then
 	# 	cd $UDIR
 	# 	ldir |cut -d_ -f2 |tee list_idum.used
-	# 	pwd 
+	# 	pwd
 	# 	read IDUM < list_idum.used
 	# 	cp IDUM_$IDUM/used.inputABHZ.conf .
 	# 	$HOME/.bin/get_data_Abhz_2d idumFILE=list_idum.used
@@ -48,21 +48,21 @@ do
 	echo "get Z2: $WDIS"
 	while read U;do
 	    UDIR=U$U
-	    cat $UDIR/IDUM_*/z2.dat|mgs |awk -v w=$WDIS -v u=$U '{ print u,$1,$2,$3,w}' 
+	    cat $UDIR/IDUM_*/z2.dat|mgs |awk -v w=$WDIS -v u=$U '{ print u,$1,$2,$3,w}'
 	done < list_u.used |tee z2VSuVSw.mgs
 
-	echo "get Egap: $WDIS"	
+	echo "get Egap: $WDIS"
 	while read U;do
 	    UDIR=U$U
-	    cat $UDIR/IDUM_*/Egap.dat|mgs |awk -v w=$WDIS -v u=$U '{ print u,$1,$2,$3,w}' 
+	    cat $UDIR/IDUM_*/Egap.dat|mgs |awk -v w=$WDIS -v u=$U '{ print u,$1,$2,$3,w}'
 	done < list_u.used |tee EgapVSuVSw.mgs
 
 	echo "get PSzPgap: $WDIS"
 	while read U;do
 	    UDIR=U$U
-	    cat $UDIR/IDUM_*/PSzPgap.dat|mgs |awk -v w=$WDIS -v u=$U '{ print u,$1,$2,$3,w}' 
+	    cat $UDIR/IDUM_*/PSzPgap.dat|mgs |awk -v w=$WDIS -v u=$U '{ print u,$1,$2,$3,w}'
 	done < list_u.used |tee PSzPgapVSuVSw.mgs
-		
+
 	cd $HERE
     fi
     # cat $WDIR/z2.dat|trans $WDIS \#1 \#2 >> z2VSwdis.dat

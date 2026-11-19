@@ -12,7 +12,7 @@ program analysis
   integer                               :: io,i,id
   type(pdf_kernel)                      :: pdf_E,pdf_Tz,pdf_Sz,pdf_Gap,pdf_PSzP,pdf_Z2
 
-  !  
+  !
   !Read input:
   call parse_cmd_variable(inputFILE,"inputFILE",default="used.inputABHZ.conf")
   call parse_cmd_variable(idumFILE,"idumFILE",default="list_idum")
@@ -22,7 +22,7 @@ program analysis
   call parse_input_variable(disorder_type,"DISORDER_TYPE",inputFILE,default=0)
   call parse_input_variable(bhz_pbc,"BHZ_PBC",inputFILE,default=.true.)
   call parse_input_variable(mh,"MH",inputFILE,default=3.d0)
-  call parse_input_variable(lambda,"LAMBDA",inputFILE,default=0.3d0)  
+  call parse_input_variable(lambda,"LAMBDA",inputFILE,default=0.3d0)
   call parse_input_variable(mu,"MU",inputFILE,default=0.d0)
   call parse_input_variable(temp,"temp",inputFILE,default=0.0001d0)
   call parse_input_variable(wmix,"WMIX",inputFILE,default=0.5d0)
@@ -36,7 +36,6 @@ program analysis
   call parse_input_variable(with_lcm,"WITH_lcm",inputFILE,default=.false.)
   call parse_input_variable(with_mats_gf,"WITH_MATS_GF",inputFILE,default=.false.)
   call parse_input_variable(with_real_gf,"WITH_REAL_GF",inputFILE,default=.false.)
-  call parse_input_variable(Nblock,"NBLOCK",inputFILE,default=4)
 
   !
   !Save variables into DMFT_TOOLS memory pool
@@ -125,17 +124,17 @@ program analysis
 
 
   pdf_Tz = get_pdf_from_data(-Tzdata,500,ini=1d-5,end=1d0)
-  call pdf_print(pdf_Tz,"pdf_Tz.dat")  
+  call pdf_print(pdf_Tz,"pdf_Tz.dat")
 
   pdf_Sz = get_pdf_from_data(Szdata,500,ini=-2d0,end=2d0)
-  call pdf_print(pdf_Sz,"pdf_Sz.dat")  
+  call pdf_print(pdf_Sz,"pdf_Sz.dat")
 
   pdf_Gap = get_pdf_from_data(Gapdata,500,ini=1d-5)
-  call pdf_print(pdf_Gap,"pdf_Egap.dat")  
+  call pdf_print(pdf_Gap,"pdf_Egap.dat")
 
 
   pdf_Z2 = get_pdf_from_data(Z2data,500,ini=1d-5)
-  call pdf_print(pdf_Z2,"pdf_Z2.dat")  
+  call pdf_print(pdf_Z2,"pdf_Z2.dat")
 
 
 contains
@@ -144,7 +143,7 @@ contains
   function get_pdf_from_data(data,N,sdev,ini,end) result(pdf)
     real(8),dimension(:),intent(in) :: data
     integer,intent(in)              :: N
-    real(8),optional                :: sdev,ini,end  
+    real(8),optional                :: sdev,ini,end
     type(pdf_kernel)                :: pdf
     real(8)                         :: a,b
     real(8)                         :: sigma
