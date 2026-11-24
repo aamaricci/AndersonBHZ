@@ -1,5 +1,6 @@
 program ed_bhz_2d_edge
   USE COMMON
+  USE BHZ_BUILD
   USE BHZ_SOLVE
   USE BHZ_LCM
   USE EDIPACK2INEQ
@@ -11,6 +12,7 @@ program ed_bhz_2d_edge
   logical                                     :: spinsym
   logical                                     :: with_kinetic
   logical                                     :: with_z
+  logical                                     :: with_mats_gf
   integer                                     :: dmft_comm
   logical                                     :: MpiMaster
   !Bath:
@@ -40,7 +42,6 @@ program ed_bhz_2d_edge
   call parse_input_variable(wmix,"WMIX",inputFILE,default=0.5d0)
   call parse_input_variable(with_lcm,"WITH_lcm",inputFILE,default=.false.)
   call parse_input_variable(with_mats_gf,"WITH_MATS_GF",inputFILE,default=.false.)
-  call parse_input_variable(with_real_gf,"WITH_REAL_GF",inputFILE,default=.false.)
   call parse_input_variable(with_kinetic,"WITH_KINETIC",inputFILE,default=.false.)
   call parse_input_variable(with_Z,"WITH_Z",inputFILE,default=.false.)
   !
@@ -88,11 +89,11 @@ program ed_bhz_2d_edge
   if(MPImaster)write(*,*) "Solve homogeneous model with Nk="//str(Nk)
   allocate(Hk(Nso,Nso,Nk))
   call TB_build_model(Hk,hk_model,Nso,[Nx,Ny])
-  z2 = hk_to_spin_Chern(Hk,[Nx,Ny],spin=1)
+  z2 = Bloch_SpinChern(Hk,[Nx,Ny],spin=1)
   if(MPImaster)write(*,*)"get spin Chern UP:",z2
-  z2 = hk_to_spin_Chern(Hk,[Nx,Ny],spin=2)
+  z2 = Bloch_SpinChern(Hk,[Nx,Ny],spin=2)
   if(MPImaster)write(*,*)"get spin Chern DW:",z2
-  z2 = hk_to_spin_Chern(Hk,[Nx,Ny])
+  z2 = Bloch_SpinChern(Hk,[Nx,Ny])
   if(MPImaster)write(*,*)"get Z2:",z2
   if(MPImaster)write(*,*)""
   if(MPImaster)write(*,*)""
@@ -126,9 +127,6 @@ program ed_bhz_2d_edge
   !
   !Get local Gf matsubara
   if(with_mats_gf)call get_gf_mats
-  !
-  !Get local Gf real-axis  
-  if(with_real_gf)call get_gf_real
   !=========================================
 
 
@@ -183,14 +181,14 @@ program ed_bhz_2d_edge
 
 
   !Get topological info:
-  sp_chern = spin_chern_numbers()
+  sp_chern = LCM_SpinChern_numbers()
   if(MPImaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
   if(MPImaster)call save_array("spin_chern.dat",sp_chern)
   if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
   !
   !Get LCM: 
   if(with_lcm)then
-     call local_spin_chern_marker(LsCM,LsCM_down)
+     call LCM_SpinChern_marker(LsCM,LsCM_down)
      if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
   endif
 
@@ -256,24 +254,6 @@ contains
     call finalize_MPI()
     stop
   end subroutine get_gf_mats
-
-
-
-  subroutine get_gf_real
-    if(MpiMaster)call file_untargz(tarball="tar_gfmatrix")
-    call barrier_MPI(dmft_comm)
-    !S --> Sigma(w) real-axis:
-    if(allocated(self))deallocate(self)
-    if(allocated(gloc))deallocate(gloc)
-    allocate(self(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
-    allocate(gloc(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
-    call ed_get_sigma(self,Nlat,'r')
-    call dmft_get_gloc(Hij,gloc,self,axis='r')
-    call write_gf(gloc,"Gloc_"//str(idum),'real',iprint=4,itar=.true.)
-    if(MpiMaster)call file_targz(tarball="tar_gfmatrix",pattern="gfmatrix_ineq*.restart")       
-    call finalize_MPI()
-    stop
-  end subroutine get_gf_real
 
 
 

@@ -1,138 +1,18 @@
 MODULE BHZ_LCM
-  USE SCIFOR
-  USE DMFT_TOOLS
   USE COMMON
+  USE BHZ_BUILD, only: Sz
   USE BHZ_SOLVE
   implicit none
   private
-  public :: hk_to_Chern
-  public :: hk_to_spin_Chern
-  public :: spin_chern_numbers
-  public :: local_spin_chern_marker
+
+  public :: Bloch_Chern
+  public :: Bloch_SpinChern
+  !
+  public :: LCM_SpinChern_numbers
+  public :: LCM_SpinChern_marker
 
 
 contains
-
-
-  function spin_chern_numbers() result(chern)
-    ! Return the physical up/down Chern numbers for the globally
-    ! selected spin representation. For SPIN_BLOCKS=1 or 2 the
-    ! occupied sector bases are prepared internally from U_UP/DOWN and
-    ! EV_UP/DOWN. SPIN_BLOCKS=0 uses the projected-spin sectors of the
-    ! complete globally stored eigensystem U,E.
-    real(8) :: chern(2)
-    !
-    select case(spin_blocks)
-    case(1)
-      call setup_occupied_bases()
-      chern(1) = single_point_chern_basis(Uocc_up)
-      chern(2) = -chern(1)
-    case(2)
-      call setup_occupied_bases()
-      chern(1) = single_point_chern_basis(Uocc_up)
-      chern(2) = single_point_chern_basis(Uocc_down)
-    case(0)
-      if(.not.allocated(U).or..not.allocated(E)) &
-        error stop "spin_chern_numbers: full eigensystem is not set"
-      chern(1) = single_point_spin_chern(spin=2)
-      chern(2) = single_point_spin_chern(spin=1)
-    case default
-      error stop "spin_chern_numbers: invalid SPIN_BLOCKS"
-    end select
-  end function spin_chern_numbers
-
-
-
-
-  subroutine local_spin_chern_marker(marker_up,marker_down)
-    ! Return the physical up/down local Chern markers using the global
-    ! boundary and spin representation. Occupied bases are prepared
-    ! internally. The caller never handles UOCC explicitly.
-    real(8),dimension(:,:),allocatable,intent(out) :: marker_up
-    real(8),dimension(:,:),allocatable,intent(out) :: marker_down
-    !
-    select case(spin_blocks)
-    case(1)
-      call setup_occupied_bases()
-      if(bhz_pbc)then
-        call pbc_local_chern_marker_basis(Uocc_up,2,marker_up)
-      else
-        call obc_local_chern_marker_basis(Uocc_up,2,marker_up)
-      endif
-      allocate(marker_down,source=-marker_up)
-    case(2)
-      call setup_occupied_bases()
-      if(bhz_pbc)then
-        call pbc_local_chern_marker_basis(Uocc_up,2,marker_up)
-        call pbc_local_chern_marker_basis(Uocc_down,2,marker_down)
-      else
-        call obc_local_chern_marker_basis(Uocc_up,2,marker_up)
-        call obc_local_chern_marker_basis(Uocc_down,2,marker_down)
-      endif
-    case(0)
-      if(bhz_pbc)then
-        call pbc_local_spin_chern_marker(spin=2,lcm=marker_up)
-        call pbc_local_spin_chern_marker(spin=1,lcm=marker_down)
-      else
-        call obc_local_spin_chern_marker(spin=2,lcm=marker_up)
-        call obc_local_spin_chern_marker(spin=1,lcm=marker_down)
-      endif
-    case default
-      error stop "local_spin_chern_marker: invalid SPIN_BLOCKS"
-    end select
-  end subroutine local_spin_chern_marker
-
-
-
-
-  subroutine setup_occupied_bases()
-    ! Build the global zero-temperature occupied bases from the
-    ! globally stored sector eigensystems. A state at MU is reported
-    ! and excluded because it does not define an idempotent projector.
-    if(spin_blocks==0)return
-    if(spin_blocks==1.and.allocated(Uocc_up))return
-    if(spin_blocks==2.and.allocated(Uocc_up).and. &
-      allocated(Uocc_down))return
-    if(.not.allocated(U_up).or..not.allocated(Ev_up)) &
-      error stop "setup_occupied_bases: up eigensystem is not set"
-    call set_occupied_basis(U_up,Ev_up,"up",Uocc_up,Nocc_up)
-    if(spin_blocks==1)then
-      Nocc_down = Nocc_up
-    else
-      if(.not.allocated(U_down).or..not.allocated(Ev_down)) &
-        error stop "setup_occupied_bases: down eigensystem is not set"
-      call set_occupied_basis(U_down,Ev_down,"down", &
-        Uocc_down,Nocc_down)
-    endif
-    Nocc = Nocc_up+Nocc_down
-  end subroutine setup_occupied_bases
-
-
-
-
-  subroutine set_occupied_basis(evec,eval,sector,Uocc,noccupied)
-    complex(8),dimension(:,:),intent(in)              :: evec
-    real(8),dimension(:),intent(in)                   :: eval
-    character(len=*),intent(in)                       :: sector
-    complex(8),dimension(:,:),allocatable,intent(out) :: Uocc
-    integer,intent(out)                               :: noccupied
-    real(8),parameter                                 :: mu_tol=1d-12
-    integer                                           :: n
-    !
-    n = size(eval)
-    if(any(shape(evec)/=[n,n])) &
-      error stop "set_occupied_basis: invalid eigenvector shape"
-    if(n>1.and.any(eval(2:)<eval(:n-1))) &
-      error stop "set_occupied_basis: eigenvalues are not ordered"
-    if(any(abs(eval-mu)<=mu_tol)) &
-      write(*,*)"occupied levels warning: level at MU in ",trim(sector)
-    noccupied = count(eval<mu-mu_tol)
-    if(noccupied<1.or.noccupied>=n) &
-      error stop "set_occupied_basis: empty or complete sector"
-    allocate(Uocc(n,noccupied),source=evec(:,1:noccupied))
-    write(*,*)"Occupied states [",trim(sector),"]:",noccupied
-  end subroutine set_occupied_basis
-
 
 
 
@@ -140,9 +20,12 @@ contains
   !                 H(k) ==>   C   and  C_\sigma
   !####################################################################
   !+------------------------------------------------------------------+
-  !get Chern number of H(k) using discretized Berry flux in the BZ
+  ! Compute the Chern number of a clean Bloch Hamiltonian on a periodic
+  ! k mesh. The method sums gauge-invariant discretized Berry fluxes
+  ! over Brillouin-zone plaquettes and may also write their local
+  ! values.
   !+------------------------------------------------------------------+
-  function hk_to_Chern(Hk,Nkvec,plot_berry) result(chern)
+  function Bloch_Chern(Hk,Nkvec,plot_berry) result(chern)
     complex(8),intent(in),dimension(:,:,:)    :: Hk    ![Nlso][Nlso][Nktot]
     integer,intent(in),dimension(2)           :: Nkvec ![Nk1][Nk2]: prod(Nkvec)=Nktot
     logical,optional                          :: plot_berry
@@ -236,12 +119,15 @@ contains
       linspace(0d0,pi2,Nkx,iend=.false.),&
       linspace(0d0,pi2,Nky,iend=.false.),&
       BerryCurvature(:Nkx,:Nky))
-  end function hk_to_Chern
+  end function Bloch_Chern
 
   !+------------------------------------------------------------------+
-  !get spin Chern number of H(k) using discretized Berry flux in the BZ
+  ! Compute a spin-resolved Chern number of a clean Bloch Hamiltonian on
+  ! a periodic k mesh. The method uses discretized Berry-link phases;
+  ! SPIN=0 returns the half difference of the two conserved-spin
+  ! sectors.
   !+------------------------------------------------------------------+
-  function hk_to_spin_Chern(Hk,Nkvec,spin,berry) result(sp_chern)
+  function Bloch_SpinChern(Hk,Nkvec,spin,berry) result(sp_chern)
     complex(8),intent(in),dimension(:,:,:)      :: Hk    ![Nlso][Nlso][Nktot]
     integer,intent(in),dimension(2)             :: Nkvec ![Nk1][Nk2]: prod(Nkvec)=Nktot
     integer,optional                            :: spin
@@ -304,7 +190,7 @@ contains
         ikyP = modulo(iky,Nky) + 1
         !
         select case(spin_)
-         case default;stop "hk_to_spin_Chern error: spin != {0,1,2}: 0=Z2/Both, 1=UP, 2=DW"
+         case default;stop "Bloch_SpinChern error: spin != {0,1,2}: 0=Z2/Both, 1=UP, 2=DW"
          case(0)
           do ispin=1,2
             Ulink(1)    = dot_product(BlochStates(ikx,iky,ispin,:)  , BlochStates(ikx,ikyP,ispin,:))
@@ -337,7 +223,400 @@ contains
     enddo
     !
     !
-  end function hk_to_spin_Chern
+  end function Bloch_SpinChern
+
+
+
+
+
+
+
+
+
+  !####################################################################
+  !                 H(i,j)  ==>   C   and  C_\sigma
+  !####################################################################
+  ! Return the two real-space, single-point Chern invariants associated
+  ! with the physical up/down sectors selected by SPIN_BLOCKS.
+  ! Lapack works from occupied eigenvectors;
+  ! Chebychev applies the polynomial projector to the supplied CSR matrices without forming P.
+  ! The invariant always uses periodic-gauge transport, also for an OBC H.
+  ! Optional maps are reusable only for a Chebychev calculation with PBC.
+  function LCM_SpinChern_numbers(spHup,spHdown,spHfull,marker_up,marker_down) result(chern)
+    type(sparse_zmatrix_csr),optional,intent(in) :: spHup,spHdown,spHfull
+    real(8),allocatable,optional,intent(out)     :: marker_up(:,:)
+    real(8),allocatable,optional,intent(out)     :: marker_down(:,:)
+    real(8),allocatable                          :: up(:,:),down(:,:)
+    real(8)                                      :: chern(2)
+    !
+    select case(method)
+     case default;error stop "LCM_SpinChern_numbers: invalid METHOD"
+     case("lapack")
+      call LCM_SpinChern_numbers_lapack(chern)
+     case("chebychev")
+      !Get Marker--> integrate and get the corresponding C_s
+      ! For an exact P, U_occ^H V_b = I. Thus the trace of
+      ! [B_1,B_2] P reproduces the LAPACK dual-state inner products.
+      ! Sum the periodic diagonal and undo its Nlat normalization.
+      call LCM_SpinChern_marker_chebychev(up,down,spHup,spHdown,spHfull,periodic=.true.)
+      chern = [sum(up),sum(down)]/Nlat
+      if(bhz_pbc)then
+        if(present(marker_up))call move_alloc(up,marker_up)
+        if(present(marker_down))call move_alloc(down,marker_down)
+      endif
+    end select
+  end function LCM_SpinChern_numbers
+
+  ! Return the two local real-space Chern-marker maps with shape
+  ! [Nx,Ny]. Lapack constructs them from occupied eigenvectors;
+  ! Chebychev evaluates the corresponding projector expressions by
+  ! sparse matrix-vector products. Boundary conditions follow BHZ_PBC.
+  ! The full CSR path for SPIN_BLOCKS=0 currently requires conserved Sz.
+  subroutine LCM_SpinChern_marker(marker_up,marker_down,spHup,spHdown,spHfull)
+    real(8),dimension(:,:),allocatable,intent(out) :: marker_up
+    real(8),dimension(:,:),allocatable,intent(out) :: marker_down
+    type(sparse_zmatrix_csr),optional,intent(in)   :: spHup,spHdown,spHfull
+    !
+    select case(method)
+     case default;error stop "LCM_SpinChern_marker: invalid METHOD"
+     case("lapack")
+      call LCM_SpinChern_marker_lapack(marker_up,marker_down)
+     case("chebychev")
+      call LCM_SpinChern_marker_chebychev(marker_up,marker_down,spHup,spHdown,spHfull,bhz_pbc)
+    end select
+  end subroutine LCM_SpinChern_marker
+
+
+
+
+
+  ! Implement the dense branch of LCM_SpinChern_numbers. Conserved-spin
+  ! modes use their occupied bases; full mode splits the occupied space
+  ! through the spectrum of P Sz P.
+  subroutine LCM_SpinChern_numbers_lapack(chern)
+    real(8) :: chern(2)
+    !
+    select case(spin_blocks)
+     case(1)
+      call setup_occupied_bases()
+      chern(1) = single_point_chern_basis(Uocc_up)
+      chern(2) = -chern(1)
+     case(2)
+      call setup_occupied_bases()
+      chern(1) = single_point_chern_basis(Uocc_up)
+      chern(2) = single_point_chern_basis(Uocc_down)
+     case(0)
+      if(.not.allocated(U).or..not.allocated(E)) &
+        error stop "LCM_SpinChern_numbers: full eigensystem is not set"
+      chern(1) = single_point_spin_chern(spin=2)
+      chern(2) = single_point_spin_chern(spin=1)
+     case default
+      error stop "LCM_SpinChern_numbers: invalid SPIN_BLOCKS"
+    end select
+  end subroutine LCM_SpinChern_numbers_lapack
+
+
+
+
+
+
+
+
+
+  ! Implement the dense branch of LCM_SpinChern_marker. It dispatches
+  ! to OBC position commutators or PBC dual states and handles the three
+  ! SPIN_BLOCKS representations internally.
+  subroutine LCM_SpinChern_marker_lapack(marker_up,marker_down)
+    real(8),dimension(:,:),allocatable,intent(out) :: marker_up
+    real(8),dimension(:,:),allocatable,intent(out) :: marker_down
+    !
+    select case(spin_blocks)
+     case(1)
+      call setup_occupied_bases()
+      if(bhz_pbc)then
+        call pbc_local_chern_marker_basis(Uocc_up,2,marker_up)
+      else
+        call obc_local_chern_marker_basis(Uocc_up,2,marker_up)
+      endif
+      allocate(marker_down,source=-marker_up)
+     case(2)
+      call setup_occupied_bases()
+      if(bhz_pbc)then
+        call pbc_local_chern_marker_basis(Uocc_up,2,marker_up)
+        call pbc_local_chern_marker_basis(Uocc_down,2,marker_down)
+      else
+        call obc_local_chern_marker_basis(Uocc_up,2,marker_up)
+        call obc_local_chern_marker_basis(Uocc_down,2,marker_down)
+      endif
+     case(0)
+      if(bhz_pbc)then
+        call pbc_local_spin_chern_marker(spin=2,lcm=marker_up)
+        call pbc_local_spin_chern_marker(spin=1,lcm=marker_down)
+      else
+        call obc_local_spin_chern_marker(spin=2,lcm=marker_up)
+        call obc_local_spin_chern_marker(spin=1,lcm=marker_down)
+      endif
+     case default
+      error stop "LCM_SpinChern_marker: invalid SPIN_BLOCKS"
+    end select
+  end subroutine LCM_SpinChern_marker_lapack
+
+
+  ! Implement the sparse branch of LCM_SpinChern_marker. It selects the
+  ! required spin-block CSR matrices and reconstructs the down map by
+  ! time reversal in mode 1; PERIODIC selects the geometric kernel.
+  subroutine LCM_SpinChern_marker_chebychev(marker_up,marker_down,spHup,spHdown,spHfull,periodic)
+    real(8),allocatable,intent(out)              :: marker_up(:,:)
+    real(8),allocatable,intent(out)              :: marker_down(:,:)
+    type(sparse_zmatrix_csr),optional,intent(in) :: spHup,spHdown,spHfull
+    logical,intent(in)                          :: periodic
+    real(8),allocatable                         :: maps(:,:,:)
+    !
+    select case(spin_blocks)
+     case(1,2)
+      if(.not.present(spHup))error stop "LCM Chebychev: SPHUP is required"
+      if(spin_blocks==2.and..not.present(spHdown))error stop "LCM Chebychev: SPHDOWN is required"
+      !
+      call local_chern_chebychev(spHup,2,periodic,maps)
+      allocate(marker_up,source=maps(:,:,1))
+      !
+      if(spin_blocks==1)then
+        allocate(marker_down,source=-marker_up)
+      else
+        call local_chern_chebychev(spHdown,2,periodic,maps)
+        allocate(marker_down,source=maps(:,:,1))
+      endif
+      !
+     case(0)
+      if(.not.present(spHfull))error stop "LCM Chebychev: SPHFULL is required"
+      call local_chern_chebychev(spHfull,4,periodic,maps)
+      allocate(marker_up,source=maps(:,:,1))
+      allocate(marker_down,source=maps(:,:,2))
+      !
+     case default
+      error stop "LCM Chebychev: invalid SPIN_BLOCKS"
+    end select
+  end subroutine LCM_SpinChern_marker_chebychev
+
+
+  ! Evaluate all spin-resolved local marker maps of one sparse
+  ! Hamiltonian using the Chebychev Fermi projector. This common wrapper
+  ! validates Sz conservation, selects OBC/PBC and reshapes the
+  ! diagonal.
+  subroutine local_chern_chebychev(spH,ninternal,periodic,maps)
+    type(sparse_zmatrix_csr),intent(in) :: spH
+    integer,intent(in)                 :: ninternal
+    logical,intent(in)                 :: periodic
+    real(8),allocatable,intent(out)     :: maps(:,:,:)
+    real(8),allocatable                :: diagonal(:)
+    integer,allocatable                :: rows(:)
+    integer                            :: n,i,j,k,ilat,ix,iy,ispin
+    !
+    n = spH%Nrow
+    if(n/=Nlat*ninternal.or.spH%Ncol/=n.or..not.spH%status) &
+      error stop "local_chern_chebychev: invalid SPH"
+    if(ninternal==4)then
+      do i=1,n
+        do k=1,spH%row(i)%Size
+          j = spH%row(i)%cols(k)
+          if(modulo(i-1,4)/2==modulo(j-1,4)/2)cycle
+          if(spH%row(i)%vals(k)/=zero) &
+            error stop "LCM Chebychev: SPHFULL must conserve Sz"
+        enddo
+      enddo
+    endif
+    !
+    rows = arange(1,n)
+    allocate(diagonal(n))
+    call setup_fermi_chebychev(spH)
+    if(periodic)then
+      call pbc_local_chern_chebychev(spH,rows,ninternal,diagonal)
+    else
+      call obc_local_chern_chebychev(spH,rows,ninternal,diagonal)
+    endif
+    !
+    allocate(maps(Nx,Ny,ninternal/2),source=0d0)
+    do i=1,n
+      ilat = (i-1)/ninternal+1
+      ix = modulo(ilat-1,Nx)+1
+      iy = (ilat-1)/Nx+1
+      ispin = modulo(i-1,ninternal)/2+1
+      maps(ix,iy,ispin) = maps(ix,iy,ispin)+diagonal(i)
+    enddo
+  end subroutine local_chern_chebychev
+
+
+  ! Evaluate the OBC marker diagonal from P_M[X,P_M][Y,P_M] by repeated
+  ! sparse applications of the finite-order Chebychev filter P_M. The
+  ! expression does not assume that P_M is exactly idempotent.
+  subroutine obc_local_chern_chebychev(spH,rows,ninternal,diagonal)
+    type(sparse_zmatrix_csr),intent(in) :: spH
+    integer,intent(in)                 :: rows(:),ninternal
+    real(8),intent(out)                 :: diagonal(:)
+    real(8),allocatable                :: r(:,:)
+    complex(8),allocatable             :: e(:),pe(:),comm_y(:)
+    complex(8),allocatable             :: v(:),pv(:),pxv(:)
+    integer                            :: n,i
+    !
+    n = size(rows)
+    r = TB_build_Rcoord([Nx,Ny],to_home=.false.,ninternal=ninternal)
+    allocate(e(n),pe(n),comm_y(n),v(n),pv(n),pxv(n))
+    e = zero
+    !
+    ! Evaluate diag(P[X,P][Y,P]) without assuming P_M**2=P_M.
+    call start_timer()
+    call start_timer("obc_local_chern_chebychev")
+    do i=1,n
+      e(i) = one
+      call apply_fermi_chebychev(spH,rows,e,pe)
+      ! Y e_i = y_i e_i, so [Y,P] e_i takes only one filter.
+      comm_y = (r(:,2)-r(i,2))*pe
+      call apply_fermi_chebychev(spH,rows,comm_y,pv)
+      v = r(:,1)*comm_y
+      call apply_fermi_chebychev(spH,rows,v,pxv)
+      diagonal(i) = -4d0*pi*aimag(dot_product(pe,r(:,1)*pv-pxv))
+      e(i) = zero
+      call eta(i,n)
+    enddo
+    call stop_timer()
+  end subroutine obc_local_chern_chebychev
+
+
+  ! Evaluate the PBC marker diagonal with reciprocal-space phase shifts
+  ! and dual-state dyadics. Each dual action is obtained matrix-free by
+  ! a conjugate-gradient solve in the Chebychev-filtered space.
+  subroutine pbc_local_chern_chebychev(spH,rows,ninternal,diagonal)
+    type(sparse_zmatrix_csr),intent(in) :: spH
+    integer,intent(in)                 :: rows(:),ninternal
+    real(8),intent(out)                 :: diagonal(:)
+    real(8),allocatable                :: r(:,:),angle(:)
+    real(8)                            :: b(2,2),max_residual
+    complex(8),allocatable             :: phase(:,:),e(:),pe(:)
+    complex(8),allocatable             :: de(:,:),dpe(:,:),w(:)
+    integer                            :: n,i,j,max_iterations
+    !
+    n = size(rows)
+    r = TB_build_Rcoord([Nx,Ny],ninternal=ninternal)
+    call TB_get_bk(b(:,1),b(:,2))
+    allocate(phase(n,2),e(n),pe(n),de(n,2),dpe(n,2),w(n))
+    do j=1,2
+      angle = matmul(r,b(:,j))
+      phase(:,j) = cmplx(cos(angle),sin(angle),kind=8)
+    enddo
+    e = zero
+    max_iterations = 0
+    max_residual = 0d0
+    !
+    ! D_j below is (B_+j - B_-j)/2. Hermiticity of the dual
+    ! dyadics reduces diag([D_1,D_2] P_M) to two inner products.
+    call start_timer("pbc_local_chern_chebychev")
+    do i=1,n
+      e(i) = one
+      call apply_fermi_chebychev(spH,rows,e,pe)
+      do j=1,2
+        call apply_dual_chebychev(spH,rows,phase(:,j),e,de(:,j), &
+          max_iterations,max_residual)
+        call apply_dual_chebychev(spH,rows,conjg(phase(:,j)),e,w, &
+          max_iterations,max_residual)
+        de(:,j) = 0.5d0*(de(:,j)-w)
+        call apply_dual_chebychev(spH,rows,phase(:,j),pe,dpe(:,j), &
+          max_iterations,max_residual)
+        call apply_dual_chebychev(spH,rows,conjg(phase(:,j)),pe,w, &
+          max_iterations,max_residual)
+        dpe(:,j) = 0.5d0*(dpe(:,j)-w)
+      enddo
+      diagonal(i) = Nlat/pi2*aimag(dot_product(de(:,1),dpe(:,2)) &
+        -dot_product(de(:,2),dpe(:,1)))
+      e(i) = zero
+      call eta(i,n)
+    enddo
+    call stop_timer()
+    write(*,*) "LCM Chebychev PBC: max CG steps and residual =", &
+      max_iterations,max_residual
+  end subroutine pbc_local_chern_chebychev
+
+
+  ! Apply one PBC dual-state dyadic to V without building the occupied
+  ! basis or projector. The overlap inverse is solved by CG through
+  ! Chebychev projector actions and its true residual is checked.
+  subroutine apply_dual_chebychev(spH,rows,phase,v,w, &
+    max_iterations,max_residual)
+    type(sparse_zmatrix_csr),intent(in) :: spH
+    integer,intent(in)                 :: rows(:)
+    complex(8),intent(in)              :: phase(:),v(:)
+    complex(8),intent(out)             :: w(:)
+    integer,intent(inout)               :: max_iterations
+    real(8),intent(inout)               :: max_residual
+    real(8),parameter                  :: tol=1d-10
+    complex(8)                         :: rhs(size(v)),x(size(v))
+    complex(8)                         :: r(size(v)),p(size(v))
+    complex(8)                         :: ap(size(v)),a(size(v))
+    real(8)                            :: rr,rr_new,den,alpha,target,rel
+    integer                            :: iter,limit
+    !
+    ! B = D P_M (A^H A)^(-1) P_M D^H, with
+    ! A = I + P_M (D-I) P_M. This symmetric extension agrees with
+    ! the LAPACK dual dyadic when P_M is an exact projector.
+    call apply_fermi_chebychev(spH,rows,conjg(phase)*v,rhs)
+    rr = real(dot_product(rhs,rhs),8)
+    w = zero
+    if(rr<=tiny(1d0))return
+    !
+    x = zero
+    r = rhs
+    p = r
+    target = rr*tol**2
+    limit = max(50,2*size(v))
+    do iter=1,limit
+      call apply_overlap_chebychev(spH,rows,phase,p,a)
+      call apply_overlap_chebychev(spH,rows,conjg(phase),a,ap)
+      den = real(dot_product(a,a),8)
+      if(.not.(den>tiny(1d0)))exit
+      alpha = rr/den
+      x = x+alpha*p
+      r = r-alpha*ap
+      rr_new = real(dot_product(r,r),8)
+      if(rr_new<=target)exit
+      p = r+(rr_new/rr)*p
+      rr = rr_new
+    enddo
+    !
+    ! Measure the true residual before accepting the dual action.
+    call apply_overlap_chebychev(spH,rows,phase,x,a)
+    call apply_overlap_chebychev(spH,rows,conjg(phase),a,ap)
+    rel = norm2(abs(rhs-ap))/norm2(abs(rhs))
+    if(.not.(rel<=10d0*tol))then
+      write(*,*) "LCM Chebychev PBC: CG steps and residual =", &
+        min(iter,limit),rel
+      error stop "LCM Chebychev PBC: overlap solve failed"
+    endif
+    max_iterations = max(max_iterations,min(iter,limit))
+    max_residual = max(max_residual,rel)
+    call apply_fermi_chebychev(spH,rows,x,w)
+    w = phase*w
+  end subroutine apply_dual_chebychev
+
+
+  ! Apply A = I + P_M(D-I)P_M, the extended PBC overlap operator used
+  ! by the matrix-free dual-state solve. D is supplied as PHASE.
+  subroutine apply_overlap_chebychev(spH,rows,phase,v,w)
+    type(sparse_zmatrix_csr),intent(in) :: spH
+    integer,intent(in)                 :: rows(:)
+    complex(8),intent(in)              :: phase(:),v(:)
+    complex(8),intent(out)             :: w(:)
+    complex(8)                         :: pv(size(v))
+    !
+    call apply_fermi_chebychev(spH,rows,v,pv)
+    call apply_fermi_chebychev(spH,rows,(phase-one)*pv,w)
+    w = v+w
+  end subroutine apply_overlap_chebychev
+
+
+
+
+
+
+
 
 
 
@@ -1055,10 +1334,10 @@ contains
     if(nzero>0) &
       error stop "projected_spin_sector: projected spin gap is closed"
     select case(spin)
-    case(1)
+     case(1)
       offset  = 0
       nsector = nminus
-    case(2)
+     case(2)
       offset  = nminus
       nsector = nplus
     end select
@@ -1087,6 +1366,9 @@ contains
     !
   end subroutine eigh_PSzP
   !
+  ! Return the matrix representation Uocc^H Sz Uocc without
+  ! diagonalizing it. This helper does not change the global PSzP
+  ! state.
   function PSzP_Matrix() result(PSzP)
     complex(8),dimension(:,:),allocatable :: PSzP
     PSzP = ( conjg(transpose(U(:,1:Nocc))).mx. (Sz.mx.U(:,1:Nocc)) )
@@ -1126,6 +1408,61 @@ contains
     enddo
     stop "ERROR chemical_potential: failed after 200 iterations"
   end function chemical_potential
+
+
+
+
+  ! Build the global zero-temperature occupied bases from the
+  ! globally stored sector eigensystems. A state at MU is reported
+  ! and excluded because it does not define an idempotent projector.
+  subroutine setup_occupied_bases()
+    if(spin_blocks==0)return
+    if(spin_blocks==1.and.allocated(Uocc_up))return
+    if(spin_blocks==2.and.allocated(Uocc_up).and. &
+      allocated(Uocc_down))return
+    if(.not.allocated(U_up).or..not.allocated(Ev_up)) &
+      error stop "setup_occupied_bases: up eigensystem is not set"
+    call set_occupied_basis(U_up,Ev_up,"up",Uocc_up,Nocc_up)
+    if(spin_blocks==1)then
+      Nocc_down = Nocc_up
+    else
+      if(.not.allocated(U_down).or..not.allocated(Ev_down)) &
+        error stop "setup_occupied_bases: down eigensystem is not set"
+      call set_occupied_basis(U_down,Ev_down,"down", &
+        Uocc_down,Nocc_down)
+    endif
+    Nocc = Nocc_up+Nocc_down
+  end subroutine setup_occupied_bases
+
+
+
+
+  ! Extract the columns with E<MU from one ordered dense eigensystem.
+  ! The routine returns the explicit occupied basis and its rank, while
+  ! rejecting empty or completely occupied sectors.
+  subroutine set_occupied_basis(evec,eval,sector,Uocc,noccupied)
+    complex(8),dimension(:,:),intent(in)              :: evec
+    real(8),dimension(:),intent(in)                   :: eval
+    character(len=*),intent(in)                       :: sector
+    complex(8),dimension(:,:),allocatable,intent(out) :: Uocc
+    integer,intent(out)                               :: noccupied
+    real(8),parameter                                 :: mu_tol=1d-12
+    integer                                           :: n
+    !
+    n = size(eval)
+    if(any(shape(evec)/=[n,n])) &
+      error stop "set_occupied_basis: invalid eigenvector shape"
+    if(n>1.and.any(eval(2:)<eval(:n-1))) &
+      error stop "set_occupied_basis: eigenvalues are not ordered"
+    if(any(abs(eval-mu)<=mu_tol)) &
+      write(*,*)"occupied levels warning: level at MU in ",trim(sector)
+    noccupied = count(eval<mu-mu_tol)
+    if(noccupied<1.or.noccupied>=n) &
+      error stop "set_occupied_basis: empty or complete sector"
+    allocate(Uocc(n,noccupied),source=evec(:,1:noccupied))
+    write(*,*)"Occupied states [",trim(sector),"]:",noccupied
+  end subroutine set_occupied_basis
+
 
 
 
@@ -1216,7 +1553,7 @@ contains
 
 
 
-END MODULE BHZ_LCM
+end module BHZ_LCM
 
 
 
