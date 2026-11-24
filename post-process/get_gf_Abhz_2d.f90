@@ -1,6 +1,7 @@
 program analysis
   USE COMMON
-  USE LCM_SQUARE
+  USE BHZ_SOLVE
+  USE BHZ_LCM
   implicit none
 
 

@@ -1,6 +1,7 @@
 program ed_bhz_2d_edge
   USE COMMON
-  USE LCM_SQUARE
+  USE BHZ_SOLVE
+  USE BHZ_LCM
   USE EDIPACK2INEQ
   implicit none
   real(8)                                     :: z2,sp_chern(2)
@@ -22,6 +23,7 @@ program ed_bhz_2d_edge
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Gloc
   complex(8),allocatable,dimension(:,:,:,:,:)   :: Hloc
   complex(8),allocatable,dimension(:,:)         :: Gtest
+  real(8),allocatable,dimension(:,:)            :: LsCM_down
 
   call init_MPI(dmft_comm)
   MpiMaster = get_master_MPI(dmft_comm)
@@ -181,15 +183,14 @@ program ed_bhz_2d_edge
 
 
   !Get topological info:
-  sp_chern(1) = single_point_spin_chern(spin=1)
-  sp_chern(2) = single_point_spin_chern(spin=2)
+  sp_chern = spin_chern_numbers()
   if(MPImaster)call save_array("z2.dat",(sp_chern(1)-sp_chern(2))/2d0 )
   if(MPImaster)call save_array("spin_chern.dat",sp_chern)
   if(MPImaster)print*,"spin_Chern UP,DW:",sp_chern
   !
   !Get LCM: 
   if(with_lcm)then
-     call pbc_local_spin_chern_marker(spin=1,lcm=LsCM)
+     call local_spin_chern_marker(LsCM,LsCM_down)
      if(MPImaster)call splot3d("PBC_Local_SpinChern_Marker.dat",dble(arange(1,Nx)),dble(arange(1,Ny)),LsCM)
   endif
 

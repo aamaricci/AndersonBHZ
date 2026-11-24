@@ -1,5 +1,6 @@
 program analysis
   USE COMMON
+  USE BHZ_SOLVE
   implicit none
 
 

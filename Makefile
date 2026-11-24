@@ -44,7 +44,7 @@ ifeq ($(BRANCH),_master)
 BRANCH=
 endif
 
-OBJS = COMMON.o LCM_SQUARE.o
+OBJS = COMMON.o BHZ_SOLVE.o BHZ_LCM.o BHZ_OBSERVABLES.o
 
 F2PY=f2py
 

@@ -1,88 +1,22 @@
 !> Solve the 2D BHZ + Kanamori n.n + Disorder model using Mean-Field
 program MF_bhz_2d_Anderson
   USE COMMON
+  USE BHZ_SOLVE
   implicit none
   integer,parameter                             :: Norb=2,Nspin=2
-  integer                                       :: Nkx,L
   integer                                       :: io,ispin,iorb,ilat
-  integer                                       :: spin_blocks
   type(sparse_zmatrix_csr)                      :: spHij_up,spHij_down
   type(sparse_zmatrix_csr)                      :: spHij_full,spHmf
   integer                                       :: Iter,Nsuccess=2
-  real(8)                                       :: Uloc,Jh,eps,sb_field
   logical                                       :: iexist,converged
   real(8),dimension(:,:),allocatable            :: params,params_prev
 
-  integer                                       :: cheb_order
-  real(8)                                       :: cheb_tol,mf_error
-  character(len=16)                             :: cheb_kind,method
+  real(8)                                       :: mf_error
 
-  integer                                       :: spectrum_order
-  logical                                       :: with_spectrum
   complex(8)                                    :: spectrum_z
 
-  call parse_cmd_variable(inputFILE,"inputFILE",default="inputBHZ.conf")
-  call parse_input_variable(prefix,"PREFIX",inputFILE,default=".")
-  call parse_input_variable(method,"METHOD",inputFILE,default="lapack")
-  call parse_input_variable(nkx,"NKX",inputFILE,default=25)
-  call parse_input_variable(L,"L",inputFILE,default=2048)
-  call parse_input_variable(Wdis,"WDIS",inputFILE,default=0d0)
-  call parse_input_variable(idum,"IDUM",inputFILE,default=1234567)
-  call parse_input_variable(disorder_type,"DISORDER_TYPE",inputFILE, &
-    default=0)
-  call parse_input_variable(bhz_pbc,"BHZ_PBC",inputFILE,default=.true.)
-  call parse_input_variable(Uloc,"ULOC",inputFILE,default=1d0)
-  call parse_input_variable(Jh,"Jh",inputFILE,default=0.125d0)
-  call parse_input_variable(mh,"MH",inputFILE,default=3.d0)
-  call parse_input_variable(lambda,"LAMBDA",inputFILE,default=0.3d0)
-  call parse_input_variable(cheb_order,"CHEB_ORDER",inputFILE, &
-    default=256)
-  call parse_input_variable(cheb_kind,"CHEB_KIND",inputFILE, &
-    default='jackson')
-  call parse_input_variable(cheb_tol,"CHEB_TOL",inputFILE,default=1d-12)
-  call parse_input_variable(mu,"XMU",inputFILE,default=0.d0)
-  call parse_input_variable(eps,"EPS",inputFILE,default=4.d-2)
-  call parse_input_variable(wmix,"WMIX",inputFILE,default=0.5d0)
-  call parse_input_variable(sb_field,"SB_FIELD",inputFILE, &
-    default=0.01d0)
-  call parse_input_variable(it_error,"IT_ERROR",inputFILE,default=1d-5)
-  call parse_input_variable(maxiter,"MAXITER",inputFILE,default=100)
-  call parse_input_variable(with_spectrum,"WITH_SPECTRUM",inputFILE, &
-    default=.false.)
-  call parse_input_variable(spin_blocks,"SPIN_BLOCKS",inputFILE, &
-    default=2,comment="Spin representation: 1, 2 or 4")
-  call parse_input_variable(spectrum_order,"SPECTRUM_ORDER",inputFILE, &
-    default=1024)
-  call parse_input_variable(wmin,"WMIN",inputFILE,default=-10d0)
-  call parse_input_variable(wmax,"WMAX",inputFILE,default=10d0)
-  method = to_lower(trim(method))
-  if(method/="lapack".and.method/="chebyshev") &
-    error stop "mf_Abhz: METHOD must be lapack or chebyshev"
-  if(.not.any(spin_blocks==[1,2,4])) &
-    error stop "mf_Abhz: SPIN_BLOCKS must be 1, 2 or 4"
-  if(spin_blocks==1.and.disorder_type==2) &
-    error stop "mf_Abhz: Sz disorder requires SPIN_BLOCKS=2 or 4"
-  if(Nkx<2)error stop "mf_Abhz: require NKX >= 2"
-  if(cheb_order<1.or.cheb_tol<=0d0) &
-    error stop "mf_Abhz: invalid CHEB_ORDER or CHEB_TOL"
-  call print_input()
-  !
-  call add_ctrl_var(Norb,"NORB")
-  call add_ctrl_var(Nspin,"Nspin")
-  call add_ctrl_var(mu,"xmu")
-  call add_ctrl_var(wmin,"wini")
-  call add_ctrl_var(wmax,"wfin")
-  call add_ctrl_var(eps,"eps")
-
-  !SETUP COMMON DIMENSIONS
-  Nx   = Nkx
-  Ny   = Nkx
-  Nlat = Nx*Ny
-  Nk   = Nlat
-  Nso  = Nspin*Norb
-  Nlso = Nlat*Nso
-  Nocc = Nlso/2
-  temp = 0d0
+  call parse_input_file(inputFILE,"inputBHZ.conf")
+  call read_input(inputFILE,"mf_Abhz")
 
   !SETUP THE GAMMA MATRICES:
   call setup_GammaMatrices()
@@ -98,7 +32,7 @@ program MF_bhz_2d_Anderson
   case(2)
     call setup_Abhz(spH=spHij_up,spin=1)
     call setup_Abhz(verbose=.false.,spH=spHij_down,spin=-1)
-  case(4)
+  case(0)
     call setup_Abhz(spH=spHij_full,spin=0)
   end select
   !
@@ -159,6 +93,7 @@ program MF_bhz_2d_Anderson
   if(spHij_down%status)call spHij_down%free()
   if(spHij_full%status)call spHij_full%free()
   if(spHmf%status)call spHmf%free()
+  call free_Abhz_solution()
   call free_Abhz()
   call reset_seed_wd()
 
@@ -181,19 +116,19 @@ contains
     select case(spin_blocks)
     case(1)
       call set_mf_hamiltonian(spHij_up,a,spin=1)
-      call solve_current_sector(dens_up)
+      call solve_Abhz(spHmf,dens_up)
       allocate(dens_down,source=dens_up)
     case(2)
       call set_mf_hamiltonian(spHij_up,a,spin=1)
-      call solve_current_sector(dens_up)
+      call solve_Abhz(spHmf,dens_up)
       call set_mf_hamiltonian(spHij_down,a,spin=-1)
-      call solve_current_sector(dens_down)
-    case(4)
+      call solve_Abhz(spHmf,dens_down)
+    case(0)
       call set_mf_hamiltonian(spHij_full,a,spin=0)
-      call solve_current_sector(dens_full)
+      call solve_Abhz(spHmf,dens_full)
     end select
 
-    if(spin_blocks<4)then
+    if(spin_blocks/=0)then
       do concurrent(ilat=1:Nlat,iorb=1:Norb)
         io = iorb+(ilat-1)*Norb
         dens(ilat,1,iorb) = dens_up(io)
@@ -250,62 +185,6 @@ contains
 
 
 
-  subroutine solve_current_sector(density)
-    ! Compute diag[Theta(mu-spHmf)] at zero temperature. LAPACK
-    ! diagonalizes the active sector; Chebyshev keeps it sparse.
-    real(8),dimension(:),allocatable,intent(out) :: density
-    complex(8),dimension(:,:),allocatable        :: Hmf
-    complex(8),dimension(:),allocatable          :: Vseed
-    real(8),dimension(:),allocatable             :: Evals,F
-    complex(8)                                   :: value(1)
-    real(8)                                      :: coeff(0:cheb_order)
-    real(8)                                      :: shift,scale
-    integer                                      :: n,io,info,nop,numop
-    !
-    n = spHmf%Nrow
-    if(n<1)error stop "solve_current_sector: empty Hamiltonian"
-    allocate(density(n),Evals(n))
-    select case(method)
-    case("lapack")
-      allocate(Hmf(n,n),F(n))
-      Hmf = as_matrix(spHmf)
-      call eigh(Hmf,Evals)
-      where(Evals<mu)
-        F = 1d0
-      elsewhere(Evals>mu)
-        F = 0d0
-      elsewhere
-        F = 0.5d0
-      endwhere
-      do io=1,n
-        density(io) = sum(F*abs(Hmf(io,:))**2)
-      enddo
-      deallocate(Hmf,F)
-    case("chebyshev")
-      call cheb_rescaling(spHmf,scale,shift)
-      call cheb_fermi_coefficients(scale,shift,mu,coeff,cheb_kind)
-      allocate(Vseed(n))
-      numop = 0
-      do io=1,n
-        Vseed     = zero
-        Vseed(io) = one
-        call cheb_projection(MatVec_Hmf,Vseed,[io],value,info,nop)
-        if(info/=0) &
-          error stop "solve_current_sector: Chebyshev recurrence failed"
-        density(io) = real(value(1),8)
-        numop       = numop+nop
-      enddo
-      deallocate(Vseed)
-      write(*,*) "Chebyshev: degree, scale, shift, MatVec calls =", &
-        cheb_order,scale,shift,numop
-    end select
-    deallocate(Evals)
-  end subroutine solve_current_sector
-
-
-
-
-
   function mf_Hij_correction(a,spin) result(spdHmf)
     ! Return the local mean-field correction in one 2x2 spin sector
     ! (SPIN=+1/-1) or in the complete 4x4 basis (SPIN=0).
@@ -342,13 +221,14 @@ contains
   ! Post-processing uses the final mixed fields in params.restart.
   !We could use DMFT_TOOLS for this...
   subroutine write_spectrum()
-    real(8)                             :: omega(L)
+    real(8)                             :: omega(spectrum_points)
     complex(8),allocatable             :: Gdiag(:,:,:,:),Gmean(:,:,:)
     complex(8),allocatable             :: Gup(:,:),Gdown(:,:),Gfull(:,:)
     integer                             :: iw,iso
     !
-    omega = linspace(wmin,wmax,L)
-    allocate(Gdiag(Nlat,Nso,Nso,L),Gmean(Nso,Nso,L))
+    omega = linspace(wmin,wmax,spectrum_points)
+    allocate(Gdiag(Nlat,Nso,Nso,spectrum_points))
+    allocate(Gmean(Nso,Nso,spectrum_points))
     Gdiag = zero
     !
     select case(spin_blocks)
@@ -361,12 +241,12 @@ contains
       call current_sector_spectrum(omega,Gup)
       call set_mf_hamiltonian(spHij_down,params,spin=-1)
       call current_sector_spectrum(omega,Gdown)
-    case(4)
+    case(0)
       call set_mf_hamiltonian(spHij_full,params,spin=0)
       call current_sector_spectrum(omega,Gfull)
     end select
 
-    if(spin_blocks<4)then
+    if(spin_blocks/=0)then
       do ilat=1,Nlat
         do iorb=1,Norb
           io = iorb+(ilat-1)*Norb
@@ -385,7 +265,7 @@ contains
     endif
     !
     Gmean = sum(Gdiag,1)/Nlat
-    call write_gf(dcmplx(omega,eps),"real")
+    call write_gf(dcmplx(omega,ieta),"real")
     call write_gf(Gdiag,"G_ii",axis='real',iprint=1)
     call write_gf(Gmean,"G",axis='real',iprint=1)
     if(allocated(Gup))deallocate(Gup)
@@ -422,11 +302,11 @@ contains
       do iw=1,size(omega)
         do io=1,n
           Gsector(io,iw) = sum(abs(Hmf(io,:))**2/ &
-            (dcmplx(omega(iw)+mu,eps)-Evals))
+            (dcmplx(omega(iw)+mu,ieta)-Evals))
         enddo
       enddo
       deallocate(Hmf,Evals)
-    case("chebyshev")
+    case("chebychev")
       call cheb_rescaling(spHmf,scale,shift)
       call cheb_set(scale,shift)
       allocate(Vseed(n),local_mom(1,0:spectrum_order))
@@ -442,14 +322,14 @@ contains
         numop         = numop+nop
       enddo
       do iw=1,size(omega)
-        spectrum_z = dcmplx(omega(iw)+mu,eps)
+        spectrum_z = dcmplx(omega(iw)+mu,ieta)
         call cheb_coefficients(spectral_resolvent,scale,shift,coeff, &
           kind="none",tol=cheb_tol,activate=.false.)
         Gsector(:,iw) = matmul(moments,coeff)
       enddo
       deallocate(Vseed,local_mom,moments)
       write(*,*) "Spectrum: degree, eta, scale, shift, MatVec calls =", &
-        spectrum_order,eps,scale,shift,numop
+        spectrum_order,ieta,scale,shift,numop
     end select
   end subroutine current_sector_spectrum
 

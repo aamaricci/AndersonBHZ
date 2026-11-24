@@ -8,7 +8,6 @@ MODULE COMMON
   integer                                   :: Nx=0
   integer                                   :: Ny=0
   integer                                   :: Nlso=0
-  integer                                   :: Nocc=0
   !
   integer                                   :: Nk
   integer                                   :: Nkpath,Npts,Nidum
@@ -23,7 +22,12 @@ MODULE COMMON
   character(len=512)                        :: prefix="."
   real(8)                                   :: Wdis
   integer                                   :: Idum
-  integer                                   :: disorder_type
+  integer                                   :: disorder_type=0
+  integer                                   :: spin_blocks=0
+  character(len=16)                         :: method="lapack"
+  character(len=16)                         :: cheb_kind="jackson"
+  integer                                   :: cheb_order=256
+  real(8)                                   :: cheb_tol=1d-12
   logical                                   :: bhz_pbc
   real(8)                                   :: mh
   real(8)                                   :: lambda
@@ -38,6 +42,10 @@ MODULE COMMON
   logical                                   :: with_lcm
   logical                                   :: with_mats_gf
   logical                                   :: with_real_gf
+  logical                                   :: with_spectrum
+  integer                                   :: spectrum_order=1024
+  integer                                   :: spectrum_points=2048
+  real(8)                                   :: Uloc,Jh,sb_field
   !Random 
   real(8),allocatable,dimension(:)          :: erandom
   integer,allocatable,dimension(:)          :: list_idum
@@ -51,10 +59,6 @@ MODULE COMMON
   complex(8),dimension(:,:),allocatable     :: Sz
   real(8),dimension(:,:),allocatable        :: LsCM
   !
-  complex(8),dimension(:,:),allocatable     :: U
-  complex(8),dimension(:,:),allocatable     :: PSzP
-  real(8),dimension(:),allocatable          :: E
-  real(8),dimension(:),allocatable          :: Epsp
   logical,private                           :: wd_active=.false.
   integer,private                           :: wd_seed=0
   integer,private                           :: disorder_seed=0
@@ -64,6 +68,200 @@ MODULE COMMON
 
 
 contains
+
+
+  subroutine parse_input_file(filename,default)
+    ! Read INPUTFILE from the command line without list-directed
+    ! character parsing. This preserves absolute paths, whose slash
+    ! would otherwise terminate a list-directed Fortran READ.
+    character(len=*),intent(out) :: filename
+    character(len=*),intent(in)  :: default
+    character(len=1024)          :: argument,key,value
+    integer                      :: i,separator,n
+    !
+    filename = default
+    do i=1,command_argument_count()
+      call get_command_argument(i,argument)
+      separator = index(argument,"=")
+      if(separator<2)cycle
+      key = to_upper(adjustl(argument(:separator-1)))
+      if(trim(key)/="INPUTFILE")cycle
+      value = adjustl(argument(separator+1:))
+      n = len_trim(value)
+      if(n>=2)then
+        if((value(1:1)=="'".and.value(n:n)=="'").or. &
+          (value(1:1)=='"'.and.value(n:n)=='"')) &
+          value = value(2:n-1)
+      endif
+      if(len_trim(value)<1)error stop "parse_input_file: empty INPUTFILE"
+      filename = trim(value)
+      write(0,*)"Variable INPUTFILE updated to "//trim(filename)
+    enddo
+  end subroutine parse_input_file
+
+
+
+
+  subroutine read_input(InputFile,driver)
+    ! Read and validate the complete input contract for one AndersonBHZ
+    ! driver. INPUTFILE is supplied by the caller and may come from the
+    ! command line. DRIVER accepts "Abhz" or "mf_Abhz". METHOD is
+    ! selected from its first letter: L means LAPACK and C Chebychev.
+    character(len=*),intent(in)  :: InputFile
+    character(len=*),intent(in)  :: driver
+    character(len=:),allocatable :: driver_
+    character(len=1)             :: method_initial
+    !
+    driver_ = to_lower(trim(driver))
+    !
+    ! Common model, disorder and representation controls.
+    call parse_input_variable(prefix,"PREFIX",InputFile,default=".")
+    if(driver_=="mf_abhz")then
+      call parse_input_variable(Nx,"NKX",InputFile,default=25)
+    else
+      call parse_input_variable(Nx,"NX",InputFile,default=10)
+    endif
+    call parse_input_variable(Wdis,"WDIS",InputFile,default=0d0)
+    call parse_input_variable(idum,"IDUM",InputFile,default=1234567)
+    call parse_input_variable(disorder_type,"DISORDER_TYPE", &
+      InputFile,default=0)
+    call parse_input_variable(bhz_pbc,"BHZ_PBC",InputFile, &
+      default=.true.)
+    call parse_input_variable(mh,"MH",InputFile,default=3d0)
+    call parse_input_variable(lambda,"LAMBDA",InputFile,default=0.3d0)
+    call parse_input_variable(spin_blocks,"SPIN_BLOCKS",InputFile, &
+      default=merge(2,1,driver_=="mf_abhz"), &
+      comment="Spin representation: 0, 1 or 2")
+    !
+    ! Solver and Chebychev controls.
+    call parse_input_variable(method,"METHOD",InputFile,default="lapack")
+    call parse_input_variable(cheb_order,"CHEB_ORDER",InputFile, &
+      default=256)
+    call parse_input_variable(cheb_kind,"CHEB_KIND",InputFile, &
+      default="jackson")
+    if(driver_=="mf_abhz") &
+      call parse_input_variable(cheb_tol,"CHEB_TOL",InputFile, &
+      default=1d-12)
+    !
+    ! Chemical potential, frequency grid and convergence controls.
+    if(driver_=="mf_abhz")then
+      call parse_input_variable(mu,"XMU",InputFile,default=0d0)
+      call parse_input_variable(ieta,"EPS",InputFile,default=4d-2)
+      call parse_input_variable(wmin,"WMIN",InputFile,default=-10d0)
+      call parse_input_variable(wmax,"WMAX",InputFile,default=10d0)
+    else
+      call parse_input_variable(mu,"MU",InputFile,default=0d0)
+      call parse_input_variable(ieta,"IETA",InputFile,default=4d-2)
+      call parse_input_variable(Lfreq,"LFREQ",InputFile,default=1024)
+      call parse_input_variable(wmin,"WMIN",InputFile,default=-5d0)
+      call parse_input_variable(wmax,"WMAX",InputFile,default=5d0)
+    endif
+    call parse_input_variable(wmix,"WMIX",InputFile,default=0.5d0)
+    call parse_input_variable(it_error,"IT_ERROR",InputFile,default=1d-5)
+    call parse_input_variable(maxiter,"MAXITER",InputFile,default=100)
+    !
+    ! Driver-specific physical and output controls.
+    select case(driver_)
+    case("abhz")
+      call parse_input_variable(p_field,"P_FIELD",InputFile,default=0.01d0)
+      call parse_input_variable(with_lcm,"WITH_LCM",InputFile, &
+        default=.false.)
+      call parse_input_variable(with_real_gf,"WITH_REAL_GF",InputFile, &
+        default=.false.)
+      with_spectrum = .false.
+    case("mf_abhz")
+      call parse_input_variable(Uloc,"ULOC",InputFile,default=1d0)
+      call parse_input_variable(Jh,"JH",InputFile,default=0.125d0)
+      call parse_input_variable(sb_field,"SB_FIELD",InputFile, &
+        default=0.01d0)
+      call parse_input_variable(with_spectrum,"WITH_SPECTRUM", &
+        InputFile,default=.false.)
+      call parse_input_variable(spectrum_points,"L",InputFile, &
+        default=2048)
+      call parse_input_variable(spectrum_order,"SPECTRUM_ORDER", &
+        InputFile,default=1024)
+      with_lcm     = .false.
+      with_real_gf = .false.
+    case default
+      error stop "read_input: DRIVER must be Abhz or mf_Abhz"
+    end select
+    !
+    ! Normalize the method from its first letter only.
+    method = to_lower(adjustl(method))
+    if(len_trim(method)<1)error stop "read_input: empty METHOD"
+    method_initial = method(1:1)
+    select case(method_initial)
+    case("l")
+      method = "lapack"
+    case("c")
+      method = "chebychev"
+    case default
+      error stop "read_input: METHOD must start with L or C"
+    end select
+    cheb_kind = to_lower(trim(cheb_kind))
+    !
+    ! Validate individual values and coupled selections.
+    call validate_spin_selection("read_input")
+    if(Nx<2)error stop "read_input: lattice size must be at least 2"
+    if(Wdis<0d0)error stop "read_input: WDIS must be nonnegative"
+    if(lambda<0d0)error stop "read_input: LAMBDA must be nonnegative"
+    if(cheb_order<1)error stop "read_input: CHEB_ORDER must be positive"
+    if(cheb_tol<=0d0)error stop "read_input: CHEB_TOL must be positive"
+    if(trim(cheb_kind)/="none".and.trim(cheb_kind)/="jackson") &
+      error stop "read_input: CHEB_KIND must be none or jackson"
+    if(wmax<=wmin)error stop "read_input: require WMAX > WMIN"
+    if(ieta<=0d0)error stop "read_input: IETA or EPS must be positive"
+    if(wmix<=0d0.or.wmix>1d0) &
+      error stop "read_input: require 0 < WMIX <= 1"
+    if(it_error<=0d0.or.maxiter<1) &
+      error stop "read_input: invalid convergence controls"
+    if(driver_=="abhz")then
+      if(Lfreq<1)error stop "read_input: LFREQ must be positive"
+      if(method=="chebychev".and.(with_lcm.or.with_real_gf)) &
+        error stop "read_input: LCM and real GF require LAPACK"
+    else
+      if(Uloc<0d0.or.Jh<0d0) &
+        error stop "read_input: ULOC and JH must be nonnegative"
+      if(spectrum_points<2.or.spectrum_order<1) &
+        error stop "read_input: invalid spectrum controls"
+    endif
+    !
+    ! Derived dimensions and common numerical controls.
+    Ny   = Nx
+    Nk   = Nx*Ny
+    Nlat = Nk
+    Nso  = 4
+    Nlso = Nlat*Nso
+    temp = 0d0
+    call add_ctrl_var(2,"NORB")
+    call add_ctrl_var(2,"NSPIN")
+    call add_ctrl_var(mu,"xmu")
+    call add_ctrl_var(wmin,"wini")
+    call add_ctrl_var(wmax,"wfin")
+    call add_ctrl_var(ieta,"eps")
+    call print_input()
+  end subroutine read_input
+
+
+
+
+  subroutine validate_spin_selection(caller)
+    ! Validate the global spin representation selected by the input.
+    ! SPIN_BLOCKS=1 solves the up sector and obtains down by time
+    ! reversal, SPIN_BLOCKS=2 solves both sectors independently, and
+    ! SPIN_BLOCKS=0 uses the complete 4x4 spin-orbital Hamiltonian.
+    ! The one-sector representation is invalid for longitudinal spin
+    ! disorder because DISORDER_TYPE=2 breaks time-reversal symmetry.
+    character(len=*),intent(in) :: caller
+    !
+    if(.not.any(spin_blocks==[0,1,2])) &
+      error stop trim(caller)//": SPIN_BLOCKS must be 0, 1 or 2"
+    if(disorder_type<0.or.disorder_type>2) &
+      error stop trim(caller)//": DISORDER_TYPE must be in [0,2]"
+    if(spin_blocks==1.and.disorder_type==2) &
+      error stop trim(caller)// &
+        ": Sz disorder requires SPIN_BLOCKS=0 or 2"
+  end subroutine validate_spin_selection
 
 
   subroutine set_seed_wd()
@@ -159,60 +357,6 @@ contains
     if(command_status/=0.or.status/=0) &
       error stop "make_output_directory: cannot create output directory"
   end subroutine make_output_directory
-
-
-  subroutine cheb_fermi_coefficients(scale,shift,fermi_level,coeff,kind)
-    ! Return the Chebyshev coefficients of Theta(fermi_level-E) on
-    ! [shift-scale,shift+scale] and activate them in SciFortran.
-    ! The series takes the value 1/2 at E=fermi_level. KIND accepts
-    ! "none" or "jackson" and defaults to "jackson".
-    real(8),intent(in)                    :: scale,shift,fermi_level
-    real(8),dimension(0:),intent(out)     :: coeff
-    character(len=*),optional,intent(in)  :: kind
-    character(len=16)                     :: kernel
-    real(8)                               :: xfermi,theta,angle,g
-    integer                               :: m,order
-    !
-    if(scale<=0d0) &
-      error stop "cheb_fermi_coefficients: SCALE must be positive"
-    order  = ubound(coeff,1)
-    kernel = "jackson"
-    if(present(kind))kernel=to_lower(trim(kind))
-    select case(kernel)
-    case("none","n")
-      kernel = "none"
-    case("jackson","j")
-      kernel = "jackson"
-    case default
-      error stop "cheb_fermi_coefficients: KIND must be none or jackson"
-    end select
-    !
-    coeff  = 0d0
-    xfermi = (fermi_level-shift)/scale
-    if(xfermi<=-1d0)then
-      call cheb_set(scale,shift,coeff)
-      return
-    elseif(xfermi>=1d0)then
-      coeff(0) = 1d0
-      call cheb_set(scale,shift,coeff)
-      return
-    endif
-    !
-    angle   = acos(xfermi)
-    coeff(0) = (pi-angle)/pi
-    do m=1,order
-      coeff(m) = -2d0*sin(m*angle)/(pi*m)
-    enddo
-    if(kernel=="jackson")then
-      theta = pi/(order+2)
-      do m=0,order
-        g = ((order+2-m)*cos(m*theta) + &
-          sin(m*theta)/tan(theta))/(order+2)
-        coeff(m) = coeff(m)*g
-      enddo
-    endif
-    call cheb_set(scale,shift,coeff)
-  end subroutine cheb_fermi_coefficients
 
 
   function xcoord(ilat) result(ix)
@@ -556,10 +700,6 @@ contains
     if(allocated(erandom))deallocate(erandom)
     if(allocated(Links))deallocate(Links)
     if(allocated(Sz))deallocate(Sz)
-    if(allocated(U))deallocate(U)
-    if(allocated(E))deallocate(E)
-    if(allocated(PSzP))deallocate(PSzP)
-    if(allocated(Epsp))deallocate(Epsp)
     disorder_seed = 0
   end subroutine free_Abhz
 
@@ -577,15 +717,10 @@ contains
     if(Nx==0)stop str(caller)//" error: Nx not set"
     if(Ny==0)stop str(caller)//" error: Ny not set"
     if(Nlat==0)stop str(caller)//" error: Nlat not set"
-    if(Nocc==0)stop str(caller)//" error: Nocc not set"
     if(Nlat/=Nx*Ny)stop str(caller)//" error: Nlat != Nx*Ny"
     if(allocated(Hlat))call assert_shape(Hlat,[Nso,Nso,Nlat,Nlat],"check_dimension","Hlat")
     if(allocated(Hij))call assert_shape(Hij,[Nlso,Nlso,1],"check_dimension","Hij")
-    if(allocated(U))call assert_shape(U,[Nlso,Nlso],"check_dimension","U")
-    if(allocated(E))call assert_shape(E,[Nlso],"check_dimension","E")
     if(allocated(Sz))call assert_shape(Sz,[Nlso,Nlso],"check_dimension","Sz")
-    if(allocated(PSzP))call assert_shape(PSzP,[Nocc,Nocc],"check_dimension","PSzP")
-    if(allocated(Epsp))call assert_shape(Epsp,[Nocc],"check_dimension","Epsp")
   end subroutine check_dimension
 
 
@@ -610,101 +745,6 @@ contains
        list_idum = idum
     endif
   end subroutine read_list_idum
-
-  !------------------------------------------------------------------
-  ! Push Bloch states and levels to internal arrays U, E
-  !------------------------------------------------------------------
-  subroutine push_Bloch(Evec,Evals)
-    complex(8),dimension(:,:) :: Evec
-    real(8),dimension(:)      :: Evals
-    call check_dimension("push_Bloch")
-    if(allocated(U).AND.allocated(E))stop "push_Bloch warning: U, E allocated"
-    call assert_shape(Evec,[Nlso,Nlso],"push_Bloch","Evec")
-    call assert_shape(Evals,[Nlso]    ,"push_Bloch","Evals")
-    if(allocated(U))deallocate(U)
-    if(allocated(E))deallocate(E)
-    allocate(U, source=Evec)
-    allocate(E, source=Evals)
-    call save_array("E.dat",E)
-    call check_Egap("push_Bloch")
-  end subroutine push_Bloch
-
-
-
-
-  subroutine check_Pgap(caller)
-    character(len=*) :: caller
-    integer          :: N
-    real(8)          :: Ep,Em,Pgap
-    N    = int(Nocc/2)
-    Ep   = Epsp(N+1)
-    Em   = Epsp(N)
-    Pgap = Ep - Em
-    write(*,"(A,G21.13)")"PSzP gap=",Pgap
-    call save_array("PSzPgap.dat",Pgap)
-    !
-    if(Pgap<1d-12)then
-       write(*,*)str(caller)//" warning: closing of the PSzP spectrum"
-    elseif(Ep*Em>0d0)then
-       write(*,*)str(caller)//" warning: PSzP spectrum not symmetric"
-    endif
-  end subroutine check_Pgap
-
-
-
-
-  subroutine check_Egap(caller)
-    character(len=*) :: caller
-    integer          :: N
-    real(8)          :: Ep,Em,Egap
-    N    = Nocc
-    Ep   = E(N+1)
-    Em   = E(N)
-    Egap = Ep - Em
-    write(*,"(A,G21.13)")"E gap=",Egap
-    call save_array("Egap.dat",Egap)
-    !
-    ! if(Egap<1d-12)then
-    !    write(*,*)str(caller)//" warning: closing of the H spectrum"
-    ! elseif(Ep*Em>0d0)then
-    !    write(*,*)str(caller)//" warning: H spectrum not symmetric"
-    ! endif
-  end subroutine check_Egap
-
-
-
-
-
-
-  subroutine get_gf(Gloc,axis)
-    complex(8),dimension(Nlat,Nso,Nso,Lfreq) :: Gloc
-    character(len=*)                         :: axis
-    complex(8),dimension(Lfreq)              :: wfreq
-    complex(8),dimension(Nlso,Lfreq)         :: csi
-    complex(8),dimension(Nlat,Nso,Nso,Lfreq) :: Gtmp
-    integer                                  :: i,ilat,io,jo,is,js
-    !
-    call check_dimension("get_gf")
-    !
-    write(*,"(A)")"Get local Green's function, axis:"//str(axis)
-    wfreq = build_frequency_array(axis)
-    !
-    !Allocate and setup the Matsubara freq.
-    forall(i=1:Lfreq)csi(:,i)=one/(wfreq(i)+mu-E(:))
-    !
-    Gloc = zero
-    call start_timer
-    do i=1,Lfreq
-       do concurrent(ilat=1:Nlat,io=1:Nso,jo=1:Nso)
-          is = io + (ilat-1)*Nso
-          js = jo + (ilat-1)*Nso
-          Gloc(ilat,io,jo,i) = sum(U(is,:)*conjg(U(js,:))*csi(:,i))!can use matmul
-       enddo
-    enddo
-    call stop_timer
-  end subroutine get_gf
-
-
 
   function build_frequency_array(axis) result(wfreq)
     character(len=*)                    :: axis
