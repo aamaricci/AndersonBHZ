@@ -15,10 +15,8 @@ program MF_bhz_2d_Anderson
   real(8)                                       :: mf_error
 
 
-  call parse_input_file(inputFILE,"inputBHZ.conf")
+  call parse_input_file(inputFILE,"ABHZ.conf")
   call read_input(inputFILE)
-
-  !SETUP THE GAMMA MATRICES:
 
   !SETUP THE OUTPUT DIRECTORY AND THE SPARSE BHZ HAMILTONIAN
   call set_seed_wd()

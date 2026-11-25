@@ -34,10 +34,8 @@ program anderson_bhz_2d
 
   !
   !Read input:
-  call parse_input_file(inputFILE,"inputABHZ.conf")
+  call parse_input_file(inputFILE,"ABHZ.conf")
   call read_input(inputFILE)
-
-  !SETUP THE GAMMA MATRICES:
 
 
   !Set the basis vectors square lattice
@@ -56,6 +54,7 @@ program anderson_bhz_2d
   write(*,*)""
   deallocate(Hk)
 
+  
   !SETUP THE OUTPUT DIRECTORY
   call set_seed_wd()
   call save_input_file(file_basename(inputFILE))
