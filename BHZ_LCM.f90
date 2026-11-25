@@ -2,6 +2,7 @@ MODULE BHZ_LCM
   USE COMMON
   USE BHZ_BUILD, only: Sz
   USE BHZ_SOLVE
+  USE BHZ_LOCALIZER, only: periodic_localizer_chern,localizer_scale_bound
   implicit none
   private
 
@@ -241,19 +242,65 @@ contains
   ! Lapack works from occupied eigenvectors;
   ! Chebychev applies the polynomial projector to the supplied CSR matrices without forming P.
   ! The invariant always uses periodic-gauge transport, also for an OBC H.
-  ! Optional maps are reusable only for a Chebychev calculation with PBC.
-  function LCM_SpinChern_numbers(spHup,spHdown,spHfull,marker_up,marker_down) result(chern)
+  ! TOPOLOGY_METHOD selects the single-point value, stochastic trace,
+  ! or periodic localizer. Optional PBC maps are supplied only for
+  ! the deterministic Chebychev single-point path with WITH_LCM.
+  ! SEM, if supplied, returns sampling errors for up, down, total,
+  ! and the spin half-difference. The computation is serial.
+  ! LOCAL_CHERN returns the companion periodic localizer when
+  ! requested. It stays unallocated for open boundaries.
+  ! LOCAL_SCAN returns the sampled ratios, scales and spin indices
+  ! as columns of a (4,nsamples) serial result. RUNNERS, if supplied,
+  ! gives the stochastic counts for up and down (zero if unused).
+  function LCM_SpinChern_numbers(spHup,spHdown,spHfull, &
+    marker_up,marker_down,sem,local_chern,local_scan,runners) result(chern)
     type(sparse_zmatrix_csr),optional,intent(in) :: spHup,spHdown,spHfull
     real(8),allocatable,optional,intent(out)     :: marker_up(:,:)
     real(8),allocatable,optional,intent(out)     :: marker_down(:,:)
+    real(8),optional,intent(out)                 :: sem(4)
+    real(8),allocatable,optional,intent(out)     :: local_chern(:)
+    real(8),allocatable,optional,intent(out)     :: local_scan(:,:)
+    integer,optional,intent(out)                 :: runners(2)
     real(8),allocatable                          :: up(:,:),down(:,:)
-    real(8)                                      :: chern(2)
+    real(8),allocatable                          :: scan(:,:)
+    real(8)                                      :: chern(2),errors(4)
+    real(8)                                      :: local_values(2)
+    integer                                      :: counts(2)
+    !
+    if(present(sem))sem = 0d0
+    if(present(runners))runners = 0
+    if(topology_method=="localizer".and..not.bhz_pbc) &
+      error stop "LCM_SpinChern_numbers: LOCALIZER requires PBC"
+    if(bhz_pbc.and.(present(local_chern).or.present(local_scan).or. &
+      topology_method=="localizer"))then
+      call scan_localizer(spHup,spHdown,spHfull,local_values,scan)
+      if(present(local_chern))allocate(local_chern,source=local_values)
+      if(present(local_scan))call move_alloc(scan,local_scan)
+      if(topology_method=="localizer")then
+        chern = local_values
+        return
+      endif
+    endif
+    !
+    !
+    select case(topology_method)
+    case("stochastic")
+      call sparse_global_chern(spHup,spHdown,spHfull,.true.,chern,errors,counts)
+      if(present(sem))sem = errors
+      if(present(runners))runners = counts
+      return
+    end select
     !
     select case(method)
      case default;error stop "LCM_SpinChern_numbers: invalid METHOD"
      case("lapack")
       call LCM_SpinChern_numbers_lapack(chern)
      case("chebychev")
+      if(.not.(bhz_pbc.and.with_lcm.and. &
+        (present(marker_up).or.present(marker_down))))then
+        call sparse_global_chern(spHup,spHdown,spHfull,.false.,chern,errors,counts)
+        return
+      endif
       !Get Marker--> integrate and get the corresponding C_s
       ! For an exact P, U_occ^H V_b = I. Thus the trace of
       ! [B_1,B_2] P reproduces the LAPACK dual-state inner products.
@@ -266,6 +313,118 @@ contains
       endif
     end select
   end function LCM_SpinChern_numbers
+
+
+  ! Use one common energy scale for both sectors. In automatic mode
+  ! preserve the result at eta_auto in the historical scalar outputs.
+  subroutine scan_localizer(spHup,spHdown,spHfull,chern,scan)
+    type(sparse_zmatrix_csr),optional,intent(in) :: spHup,spHdown,spHfull
+    real(8),intent(out)                          :: chern(2)
+    real(8),allocatable,intent(out)              :: scan(:,:)
+    real(8),parameter                            :: ratios(9) = &
+      [0.25d0,0.35d0,0.45d0,0.50d0,0.55d0,0.65d0,0.80d0,1d0,1.25d0]
+    real(8)                                      :: bound,scale
+    integer                                      :: n,i,reference
+    !
+    select case(spin_blocks)
+    case(0)
+      if(.not.present(spHfull))error stop "scan_localizer: missing SPHFULL"
+      bound = localizer_scale_bound(spHfull)
+    case(1,2)
+      if(.not.present(spHup))error stop "scan_localizer: missing SPHUP"
+      bound = localizer_scale_bound(spHup)
+      if(spin_blocks==2)then
+        if(.not.present(spHdown))error stop "scan_localizer: missing SPHDOWN"
+        bound = max(bound,localizer_scale_bound(spHdown))
+      endif
+    case default
+      error stop "scan_localizer: invalid SPIN_BLOCKS"
+    end select
+    if(.not.(bound>0d0))error stop "scan_localizer: zero automatic scale"
+    n = 1
+    reference = 1
+    if(localizer_scale==0d0)then
+      n = size(ratios)
+      reference = findloc(ratios,1d0,dim=1)
+    endif
+    allocate(scan(4,n))
+    do i=1,n
+      scale = localizer_scale
+      if(localizer_scale==0d0)scale = ratios(i)*bound
+      scan(1:2,i) = [scale/bound,scale]
+      select case(spin_blocks)
+      case(0)
+        scan(3,i) = periodic_localizer_chern(spHfull,4,1,scale)
+        scan(4,i) = periodic_localizer_chern(spHfull,4,2,scale)
+      case(1,2)
+        scan(3,i) = periodic_localizer_chern(spHup,2,1,scale)
+        if(spin_blocks==1)then
+          scan(4,i) = -scan(3,i)
+        else
+          scan(4,i) = periodic_localizer_chern(spHdown,2,1,scale)
+        endif
+      end select
+    enddo
+    chern = scan(3:4,reference)
+  end subroutine scan_localizer
+
+
+  ! Select the CSR spin representation for the global topology.
+  ! In mode 0 the trace uses the same full-matrix filter as the map.
+  subroutine sparse_global_chern(spHup,spHdown,spHfull, &
+    stochastic,chern,sem,counts)
+    type(sparse_zmatrix_csr),optional,intent(in) :: spHup,spHdown,spHfull
+    logical,intent(in)                           :: stochastic
+    real(8),intent(out)                          :: chern(2),sem(4)
+    integer,intent(out)                          :: counts(2)
+    real(8)                                     :: values(2),errors(4)
+    real(8)                                     :: tolerance
+    integer                                     :: probe_seed,nused
+    !
+    sem = 0d0
+    counts = 0
+    tolerance = topology_sem_tol
+    ! Independent streams give SEM_spin = hypot(SEM_up,SEM_down)/2.
+    if(spin_blocks==2)tolerance = sqrt(2d0)*tolerance
+    if(stochastic)then
+      if(topology_runners<2) &
+        error stop "sparse_global_chern: TOPOLOGY_RUNNERS must be at least 2"
+      ! Separate the probe stream from the seed used to build the disorder.
+      probe_seed = ieor(iand(idum,1073741823),1073741824)
+      call mersenne_init(probe_seed)
+    endif
+    select case(spin_blocks)
+    case(0)
+      if(.not.present(spHfull))error stop "sparse_global_chern: missing SPHFULL"
+      call trace_chern_chebychev(spHfull,4,stochastic,tolerance, &
+        chern,sem,nused)
+      counts = nused
+    case(1,2)
+      if(.not.present(spHup))error stop "sparse_global_chern: missing SPHUP"
+      if(spin_blocks==2.and..not.present(spHdown)) &
+        error stop "sparse_global_chern: missing SPHDOWN"
+      call trace_chern_chebychev(spHup,2,stochastic,tolerance, &
+        values,errors,counts(1))
+      chern(1) = values(1)
+      sem(1) = errors(1)
+      if(spin_blocks==1)then
+        counts(2) = counts(1)
+        chern(2) = -chern(1)
+        sem(2) = sem(1)
+        sem(4) = sem(1)
+      else
+        if(stochastic)call mersenne_init(ieor(probe_seed,536870912))
+        call trace_chern_chebychev(spHdown,2,stochastic,tolerance, &
+          values,errors,counts(2))
+        chern(2) = values(1)
+        sem(2) = errors(1)
+        sem(3) = hypot(sem(1),sem(2))
+        sem(4) = 0.5d0*sem(3)
+      endif
+    case default
+      error stop "sparse_global_chern: invalid SPIN_BLOCKS"
+    end select
+  end subroutine sparse_global_chern
 
   ! Return the two local real-space Chern-marker maps with shape
   ! [Nx,Ny]. Lapack constructs them from occupied eigenvectors;
@@ -410,21 +569,10 @@ contains
     real(8),allocatable,intent(out)     :: maps(:,:,:)
     real(8),allocatable                :: diagonal(:)
     integer,allocatable                :: rows(:)
-    integer                            :: n,i,j,k,ilat,ix,iy,ispin
+    integer                            :: n,i,ilat,ix,iy,ispin
     !
     n = spH%Nrow
-    if(n/=Nlat*ninternal.or.spH%Ncol/=n.or..not.spH%status) &
-      error stop "local_chern_chebychev: invalid SPH"
-    if(ninternal==4)then
-      do i=1,n
-        do k=1,spH%row(i)%Size
-          j = spH%row(i)%cols(k)
-          if(modulo(i-1,4)/2==modulo(j-1,4)/2)cycle
-          if(spH%row(i)%vals(k)/=zero) &
-            error stop "LCM Chebychev: SPHFULL must conserve Sz"
-        enddo
-      enddo
-    endif
+    call check_chern_csr(spH,ninternal)
     !
     rows = arange(1,n)
     allocate(diagonal(n))
@@ -444,6 +592,157 @@ contains
       maps(ix,iy,ispin) = maps(ix,iy,ispin)+diagonal(i)
     enddo
   end subroutine local_chern_chebychev
+
+
+  ! Validate the site-major CSR layout and spin conservation.
+  subroutine check_chern_csr(spH,ninternal)
+    type(sparse_zmatrix_csr),intent(in) :: spH
+    integer,intent(in)                 :: ninternal
+    integer                            :: n,i,j,k
+    !
+    n = spH%Nrow
+    if(n/=Nlat*ninternal.or.spH%Ncol/=n.or..not.spH%status) &
+      error stop "check_chern_csr: invalid SPH"
+    if(ninternal/=4)return
+    do i=1,n
+      do k=1,spH%row(i)%Size
+        j = spH%row(i)%cols(k)
+        if(modulo(i-1,4)/2==modulo(j-1,4)/2)cycle
+        if(spH%row(i)%vals(k)/=zero) &
+          error stop "LCM Chebychev: SPHFULL must conserve Sz"
+      enddo
+    enddo
+  end subroutine check_chern_csr
+
+
+  ! Accumulate the global periodic Chern trace without a marker map.
+  ! Use the canonical basis or TOPOLOGY_RUNNERS complex phase probes.
+  ! SEM includes the covariance of the two sectors in full mode.
+  subroutine trace_chern_chebychev(spH,ninternal,stochastic,tolerance, &
+    chern,sem,nused)
+    type(sparse_zmatrix_csr),intent(in) :: spH
+    integer,intent(in)                 :: ninternal
+    logical,intent(in)                 :: stochastic
+    real(8),intent(in)                  :: tolerance
+    real(8),intent(out)                 :: chern(2),sem(4)
+    integer,intent(out)                 :: nused
+    integer,allocatable                :: rows(:)
+    complex(8),allocatable             :: phase(:,:),probe(:),pp(:)
+    complex(8),allocatable             :: dx(:),dy(:),work(:)
+    real(8),allocatable                :: angle(:)
+    real(8)                            :: sample(4),mean(4),m2(4),delta(4)
+    real(8)                            :: max_residual
+    integer                            :: n,nruns,irun,i,s,max_iterations
+    integer                            :: minruns,stable,sem_index
+    !
+    call check_chern_csr(spH,ninternal)
+    n = spH%Nrow
+    rows = arange(1,n)
+    nruns = n
+    if(stochastic)nruns = topology_runners
+    minruns = min(topology_min_runners,nruns)
+    sem_index = merge(4,1,ninternal==4)
+    stable = 0
+    nused = 0
+    allocate(probe(n),pp(n),dx(n),dy(n),work(n))
+    if(stochastic)allocate(angle(n))
+    phase = chern_twist_phases(ninternal)
+    call setup_fermi_chebychev(spH)
+    chern = 0d0
+    sem = 0d0
+    mean = 0d0
+    m2 = 0d0
+    max_iterations = 0
+    max_residual = 0d0
+    probe = zero
+    !
+    ! Cyclicity and Hermiticity give Tr([Dx,Dy] P) =
+    ! 2i Im Tr(Dx Dy P) in each conserved spin sector.
+    call start_timer("trace_chern_chebychev")
+    do irun=1,nruns
+      if(stochastic)then
+        call mt_random(angle)
+        angle = pi2*angle
+        probe = cmplx(cos(angle),sin(angle),8)
+      else
+        probe(irun) = one
+      endif
+      call apply_fermi_chebychev(spH,rows,probe,pp)
+      call apply_dual_difference(spH,rows,phase(:,1),probe,dx,work, &
+        max_iterations,max_residual)
+      call apply_dual_difference(spH,rows,phase(:,2),pp,dy,work, &
+        max_iterations,max_residual)
+      sample = 0d0
+      do i=1,n
+        s = modulo(i-1,ninternal)/2+1
+        sample(s) = sample(s)+aimag(conjg(dx(i))*dy(i))/pi
+      enddo
+      if(stochastic)then
+        sample(3) = sum(sample(:2))
+        sample(4) = 0.5d0*(sample(1)-sample(2))
+        delta = sample-mean
+        mean = mean+delta/irun
+        m2 = m2+delta*(sample-mean)
+        nused = irun
+        if(irun>=minruns.and.tolerance>0d0)then
+          sem = sqrt(max(m2,0d0)/(dble(irun)*dble(irun-1)))
+          if(sem(sem_index)<=tolerance)then
+            stable = stable+1
+          else
+            stable = 0
+          endif
+          if(stable==2)exit
+        endif
+      else
+        chern = chern+sample(:2)
+        probe(irun) = zero
+      endif
+      call eta(irun,nruns)
+    enddo
+    call stop_timer()
+    if(stochastic)then
+      chern = mean(:2)
+      sem = sqrt(max(m2,0d0)/(dble(nused)*dble(nused-1)))
+    endif
+    write(*,*) "Chern trace: max CG steps and residual =", &
+      max_iterations,max_residual
+  end subroutine trace_chern_chebychev
+
+
+  ! Return the two positive periodic twists in the site-major basis.
+  function chern_twist_phases(ninternal) result(phase)
+    integer,intent(in)     :: ninternal
+    complex(8),allocatable :: phase(:,:)
+    real(8),allocatable    :: r(:,:),angle(:)
+    real(8)                :: b(2,2)
+    integer                :: j
+    !
+    r = TB_build_Rcoord([Nx,Ny],ninternal=ninternal)
+    call TB_get_bk(b(:,1),b(:,2))
+    allocate(phase(size(r,1),2))
+    do j=1,2
+      angle = matmul(r,b(:,j))
+      phase(:,j) = cmplx(cos(angle),sin(angle),8)
+    enddo
+  end function chern_twist_phases
+
+
+  ! Apply the symmetric difference of the two dual actions to V.
+  subroutine apply_dual_difference(spH,rows,phase,v,w,work, &
+    max_iterations,max_residual)
+    type(sparse_zmatrix_csr),intent(in) :: spH
+    integer,intent(in)                 :: rows(:)
+    complex(8),intent(in)              :: phase(:),v(:)
+    complex(8),intent(out)             :: w(:),work(:)
+    integer,intent(inout)              :: max_iterations
+    real(8),intent(inout)              :: max_residual
+    !
+    call apply_dual_chebychev(spH,rows,phase,v,w, &
+      max_iterations,max_residual)
+    call apply_dual_chebychev(spH,rows,conjg(phase),v,work, &
+      max_iterations,max_residual)
+    w = 0.5d0*(w-work)
+  end subroutine apply_dual_difference
 
 
   ! Evaluate the OBC marker diagonal from P_M[X,P_M][Y,P_M] by repeated
@@ -482,6 +781,7 @@ contains
   end subroutine obc_local_chern_chebychev
 
 
+
   ! Evaluate the PBC marker diagonal with reciprocal-space phase shifts
   ! and dual-state dyadics. Each dual action is obtained matrix-free by
   ! a conjugate-gradient solve in the Chebychev-filtered space.
@@ -489,20 +789,14 @@ contains
     type(sparse_zmatrix_csr),intent(in) :: spH
     integer,intent(in)                 :: rows(:),ninternal
     real(8),intent(out)                 :: diagonal(:)
-    real(8),allocatable                :: r(:,:),angle(:)
-    real(8)                            :: b(2,2),max_residual
+    real(8)                            :: max_residual
     complex(8),allocatable             :: phase(:,:),e(:),pe(:)
     complex(8),allocatable             :: de(:,:),dpe(:,:),w(:)
     integer                            :: n,i,j,max_iterations
     !
     n = size(rows)
-    r = TB_build_Rcoord([Nx,Ny],ninternal=ninternal)
-    call TB_get_bk(b(:,1),b(:,2))
-    allocate(phase(n,2),e(n),pe(n),de(n,2),dpe(n,2),w(n))
-    do j=1,2
-      angle = matmul(r,b(:,j))
-      phase(:,j) = cmplx(cos(angle),sin(angle),kind=8)
-    enddo
+    phase = chern_twist_phases(ninternal)
+    allocate(e(n),pe(n),de(n,2),dpe(n,2),w(n))
     e = zero
     max_iterations = 0
     max_residual = 0d0
@@ -514,16 +808,10 @@ contains
       e(i) = one
       call apply_fermi_chebychev(spH,rows,e,pe)
       do j=1,2
-        call apply_dual_chebychev(spH,rows,phase(:,j),e,de(:,j), &
+        call apply_dual_difference(spH,rows,phase(:,j),e,de(:,j),w, &
           max_iterations,max_residual)
-        call apply_dual_chebychev(spH,rows,conjg(phase(:,j)),e,w, &
+        call apply_dual_difference(spH,rows,phase(:,j),pe,dpe(:,j),w, &
           max_iterations,max_residual)
-        de(:,j) = 0.5d0*(de(:,j)-w)
-        call apply_dual_chebychev(spH,rows,phase(:,j),pe,dpe(:,j), &
-          max_iterations,max_residual)
-        call apply_dual_chebychev(spH,rows,conjg(phase(:,j)),pe,w, &
-          max_iterations,max_residual)
-        dpe(:,j) = 0.5d0*(dpe(:,j)-w)
       enddo
       diagonal(i) = Nlat/pi2*aimag(dot_product(de(:,1),dpe(:,2)) &
         -dot_product(de(:,2),dpe(:,1)))

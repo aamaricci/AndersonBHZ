@@ -27,7 +27,8 @@ MODULE COMMON
   integer                              :: spin_blocks=0
   character(len=16)                    :: method="lapack"
   character(len=16)                    :: cheb_kind="jackson"
-  integer                              :: cheb_order=256
+  integer,parameter,private            :: default_cheb_order=512
+  integer                              :: cheb_order=default_cheb_order
   logical                              :: bhz_pbc
   real(8)                              :: mh
   real(8)                              :: lambda
@@ -40,6 +41,12 @@ MODULE COMMON
   real(8)                              :: it_error
   integer                              :: MaxIter
   logical                              :: with_lcm
+  character(len=16)                    :: topology_method="single_point"
+  integer,parameter,private            :: default_topology_runners=128
+  integer                              :: topology_runners=default_topology_runners
+  integer                              :: topology_min_runners=32
+  real(8)                              :: topology_sem_tol=0.02d0
+  real(8)                              :: localizer_scale=0d0
 
   real(8)                              :: Uloc,Jh,sb_field
   !Random
@@ -112,11 +119,23 @@ contains
     call parse_input_variable(Jh,"JH",InputFile,default=0.125d0)
     call parse_input_variable(sb_field,"SB_FIELD",InputFile,default=0.01d0)
     call parse_input_variable(with_lcm,"WITH_LCM",InputFile,default=.false.)
+    call parse_input_variable(topology_method,"TOPOLOGY_METHOD",InputFile, &
+      default="single_point",comment="Single_point, stochastic or localizer")
+    call parse_input_variable(topology_runners,"TOPOLOGY_RUNNERS", &
+      InputFile,default=default_topology_runners, &
+      comment="Maximum serial trace probes per spin stream")
+    call parse_input_variable(topology_min_runners,"TOPOLOGY_MIN_RUNNERS", &
+      InputFile,default=32,comment="Minimum probes before testing SEM")
+    call parse_input_variable(topology_sem_tol,"TOPOLOGY_SEM_TOL", &
+      InputFile,default=0.02d0,comment="Absolute spin Chern SEM target; zero uses fixed count")
+    call parse_input_variable(localizer_scale,"LOCALIZER_SCALE", &
+      InputFile,default=0d0,comment="Energy scale, zero selects a nine-point scan")
     !
     ! Solver and Chebychev controls.
     call parse_input_variable(method,"METHOD",InputFile,default="lapack",&
       comment="Solver method:Lapack, Chebychev")
-    call parse_input_variable(cheb_order,"CHEB_ORDER",InputFile,default=256)
+    call parse_input_variable(cheb_order,"CHEB_ORDER",InputFile, &
+      default=default_cheb_order)
     call parse_input_variable(cheb_kind,"CHEB_KIND",InputFile,default="jackson")
     !
     ! Chemical potential, frequency grid and convergence controls.
@@ -137,6 +156,20 @@ contains
      case default;error stop "read_input: METHOD must start with L or C"
     end select
     cheb_kind = to_lower(trim(cheb_kind))
+    topology_method = to_lower(trim(topology_method))
+    select case(topology_method)
+    case("single_point","stochastic","localizer")
+    case default
+      error stop "read_input: invalid TOPOLOGY_METHOD"
+    end select
+    if(topology_runners<2) &
+      error stop "read_input: TOPOLOGY_RUNNERS must be at least 2"
+    if(topology_min_runners<2) &
+      error stop "read_input: TOPOLOGY_MIN_RUNNERS must be at least 2"
+    if(.not.(topology_sem_tol>=0d0)) &
+      error stop "read_input: TOPOLOGY_SEM_TOL must be nonnegative"
+    if(localizer_scale<0d0) &
+      error stop "read_input: LOCALIZER_SCALE must be nonnegative"
     !
     ! Validate individual values and coupled selections.
     call validate_spin_selection("read_input")
